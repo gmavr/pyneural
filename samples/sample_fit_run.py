@@ -2,12 +2,14 @@ import time
 
 import numpy as np
 
-import bidir_rnn_layer_test as br_test
+from context import pyneural
+
 import dataset as dst
-import embedding_layer as em
-import layers
-import sgd
-from layers_test import create_rnn_random_data
+import pyneural.embedding_layer as em
+import pyneural.layers as layers
+import pyneural.sgd as sgd
+import pyneural.test.bidir_rnn_layer_test as br_test
+from pyneural.test.layers_test import create_rnn_random_data
 
 """ Samples of model fitting.
 
@@ -126,6 +128,7 @@ def lcg(seed=None):
     random_number = (lcg.previous * a + c) % prng_modulus
     lcg.previous = random_number
     return random_number
+
 
 lcg.previous = 2222
 
@@ -297,8 +300,7 @@ def run_rnn_class_sm_sgd_long():
 
     word_class_mapper = layers.WordClassMapper(dim_c, dim_k)
 
-    rnn_obj = layers.RnnClassSoftMax((dim_d, dim_h, dim_k), word_class_mapper,
-                                     batch_size=batch_size, bptt_steps=batch_size, dtype=dtype)
+    rnn_obj = layers.RnnClassSoftMax((dim_d, dim_h, dim_k), word_class_mapper, batch_size=batch_size, dtype=dtype)
 
     print("class: %s number parameters: %d" % (type(rnn_obj).__name__, rnn_obj.get_num_p()))
 

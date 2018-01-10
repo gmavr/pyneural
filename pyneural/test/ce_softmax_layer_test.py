@@ -1,10 +1,9 @@
-import time
 import unittest
 
 import numpy as np
 
-import ce_softmax_layer as ce_sm
 import gradient_check_test_shared as gcs
+import pyneural.ce_softmax_layer as ce_sm
 
 
 class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
@@ -192,82 +191,6 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
         self.assertTrue(np.alltrue(np.equal(ce_batch.get_gradient(), ce_batch.get_built_gradient())))
         self.assertTrue(np.shares_memory(grad_storage, ce_batch.get_gradient()))
 
-    def test_time(self):
-        """
-        Measures times for batched versions against loop over the non-batched versions.
-        Note: Batches are FULL. Effective performance of batched versions will be lower when some sequences are shorter
-        than the batch size.
-        Also verifies that loss and derivatives are the same.
-        """
-        dim_d, dim_k = 25, 50
-        batch_size = 25   # number of sequences
-        max_seq_length = 20
-        num_max_seq_blocks = 50  # number of blocks, a loop for both versions
-
-        dtype = np.float64
-
-        asserts_on = True
-        ce = ce_sm.CESoftmaxLayer(dim_k, dim_d, dtype, asserts_on=asserts_on)
-        # ce = ce_sm.CESoftmaxLayerFixedLength(dim_k, dim_d, max_seq_length, dtype, asserts_on=asserts_on)
-        ce_batch = ce_sm.CESoftmaxLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype, asserts_on=asserts_on)
-        ce.init_parameters_storage()
-
-        np.random.seed(seed=47)
-        ce.model_normal_init(sd=0.1)
-
-        ce_batch.init_parameters_storage(np.copy(ce.get_model()))
-
-        labels = np.zeros((num_max_seq_blocks * max_seq_length, batch_size), dtype=np.int)
-        # each output sample has a single coordinate set
-        for i in range(num_max_seq_blocks * max_seq_length):
-            labels[i, 0:batch_size] = np.random.randint(0, dim_k, batch_size)
-
-        data_t = 0.5 * np.random.standard_normal((batch_size, num_max_seq_blocks * max_seq_length, dim_d)).astype(dtype)
-        data = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
-        for i in range(num_max_seq_blocks * max_seq_length):
-            data[i] = np.copy(data_t[:, i, :])
-
-        loss = np.zeros(num_max_seq_blocks, dtype=dtype)
-        loss_batched = np.empty(num_max_seq_blocks, dtype=dtype)
-
-        grad_accum = np.zeros((num_max_seq_blocks, ce.get_num_p()), dtype=dtype)
-        grad_batched = np.empty((num_max_seq_blocks, ce.get_num_p()), dtype=dtype)
-
-        # (M, N, D)
-        delta_err = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
-        delta_err_batch = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
-
-        print("Starting comparison of batched sequence vs loop over non-batched sequences")
-
-        seq_lengths = np.empty((batch_size, ), dtype=np.int)
-        seq_lengths.fill(max_seq_length)
-
-        start_time = time.time()
-        for j in range(num_max_seq_blocks):
-            loss_batched[j] = ce_batch.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)],
-                                               labels[(j * max_seq_length):((j + 1) * max_seq_length), :],
-                                               seq_lengths)
-            # ce_batch.back_propagation_batch()
-            delta_err_batch[(j * max_seq_length):((j + 1) * max_seq_length), :] = ce_batch.backwards()
-            grad_batched[j] = np.copy(ce_batch.get_gradient())
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
-
-        start_time = time.time()
-        for i in range(batch_size):
-            for j in range(num_max_seq_blocks):
-                loss[j] += ce.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)],
-                                      labels[(j * max_seq_length):((j + 1) * max_seq_length), i])
-                # ce.back_propagation_batch()
-                delta_err[(j * max_seq_length):((j + 1) * max_seq_length), i] = ce.backwards()
-                grad_accum[j] += ce.get_gradient()
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d x %d invocations: %.4g sec" % (batch_size, num_max_seq_blocks, time_elapsed))
-
-        rtol, atol = 1e-15, 1e-15
-        self.assertTrue(np.allclose(loss_batched, loss, rtol=rtol, atol=atol))
-        self.assertTrue(np.allclose(grad_accum, grad_batched, rtol=1e-13, atol=1e-13))
-        self.assertTrue(np.allclose(delta_err, delta_err_batch, rtol=rtol, atol=atol))
 
 if __name__ == "__main__":
     unittest.main()

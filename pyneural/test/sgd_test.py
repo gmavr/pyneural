@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-import sgd
+import pyneural.sgd as sgd
 
 
 class FuncClass(object):
@@ -20,6 +20,7 @@ class FuncClass(object):
         y = self.theta[1]
         return (2 * x ** 2 - 4 * x * y + y ** 4 + 2,
                 np.array([4 * x - 4 * y, - 4 * x + 4 * y ** 3]))
+
 
 class TestSgdVariants(unittest.TestCase):
 

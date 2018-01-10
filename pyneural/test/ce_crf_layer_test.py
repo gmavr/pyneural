@@ -2,11 +2,11 @@ import unittest
 
 import numpy as np
 
-import ce_crf_layer as ce_crf
 import gradient_check_test_shared as gcs
-import neural_layer as nl
-import rnn_layer as rl
-from neural_base import LossNN
+import pyneural.ce_crf_layer as ce_crf
+import pyneural.neural_layer as nl
+import pyneural.rnn_layer as rl
+from pyneural.neural_base import LossNN
 
 
 def create_random_data(loss_nn, num_samples, dim_h, dim_k):
@@ -294,6 +294,7 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
 
         self.do_param_gradient_check(loss_nn, data, labels, tolerance, h_init)
         self.do_input_gradient_check(loss_nn, data, labels, tolerance, h_init)
+
 
 if __name__ == "__main__":
     unittest.main()

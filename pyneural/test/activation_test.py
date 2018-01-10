@@ -1,7 +1,8 @@
 import unittest
-import activation as ac
 
 import numpy as np
+
+import pyneural.activation as ac
 
 
 class TestDataManip(unittest.TestCase):

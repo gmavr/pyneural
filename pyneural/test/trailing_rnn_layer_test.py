@@ -3,9 +3,9 @@ import unittest
 import numpy as np
 
 import gradient_check_test_shared as gcs
+import pyneural.trailing_rnn_layer as trl
 import rnn_batch_layer_test as rblt
-import trailing_rnn_layer as trl
-from ce_l2_loss import LayerWithL2Loss, BatchSequencesWithL2Loss
+from pyneural.ce_l2_loss import LayerWithL2Loss, BatchSequencesWithL2Loss
 
 
 def create_random_data_non_full_batch(rnn_batch):

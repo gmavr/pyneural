@@ -7,7 +7,7 @@ from neural_base import BatchSequencesComponentNN, glorot_init
 class RnnBatchLayer(BatchSequencesComponentNN):
     """ Standard Rnn Layer.
     
-    Time indexes the first dimension, sequence id the second.
+    First dimension is time, the second dimension is batch (sequence index).
     """
     def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation='tanh', bptt_steps=None,
                  grad_clip_thres=None, asserts_on=True):
@@ -115,9 +115,9 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
         self.hs[0] = self.hs_last[0:self._curr_num_sequences]  # makes a copy, which is desirable
 
-        # non-batch was: ((H, D) x (D, N))^T = (N, D) x (D, H) = (N, H)
-        # now with batch: (M, N, D) x (D, H) = (M, N, H)
-        # broadcasting: (M, N, H) + (H, ) = (M, N, H) + (1, H) -> (M, N, H) + (M, N, H)
+        # non-batch was: ((H, D) x (D, T))^T = (T, D) x (D, H) = (T, H)
+        # now with batch: (T, B, D) x (D, H) = (T, B, H)
+        # broadcasting: (T, B, H) + (H, ) = (T, B, H) + (1, H) -> (T, B, H) + (T, B, H)
         z_partial = np.dot(self.data, self.w_xh.T) + self.b
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
@@ -125,10 +125,10 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         z_partial_2 = self.dh_next[0:self._curr_num_sequences]  # re-use scratch space and trim
         for t in xrange(self._curr_max_seq_length):
             # non-batch was  z_partial_2:  ((H1, H2) x (H2, )) returns (H1, )
-            # now with batch z_partial_2:  ((N, H2) x (H1, H2)^T) returns (N, H1)
+            # now with batch z_partial_2:  ((B, H2) x (H1, H2)^T) returns (B, H1)
             np.dot(self.hs[t], self.w_hh.T, out=z_partial_2)
             z_partial_2 += z_partial[t]
-            self.activation(z_partial_2, out=self.hs[t + 1])  # (N, H)
+            self.activation(z_partial_2, out=self.hs[t + 1])  # (B, H)
 
         for s in xrange(self._curr_num_sequences):
             seq_length = seq_lengths[s]
@@ -141,7 +141,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
             if seq_length < curr_batch_seq_dim_length:
                 self.hs[(seq_length+1):(curr_batch_seq_dim_length+1), s] = 0.0
 
-        return self.hs[1:(curr_batch_seq_dim_length + 1)]  # (M, N, H)
+        return self.hs[1:(curr_batch_seq_dim_length + 1)]  # (T, B, H)
 
     def backwards(self, delta_upper):
         if self.asserts_on:
@@ -152,10 +152,10 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
         curr_max_seq_length = self._curr_max_seq_length
 
-        # (M, N, H)
+        # (T, B, H)
         if self._curr_num_sequences == self._max_num_sequences:
             # this is the common case (or it should be)
-            # "trim" self.dh_raw_large to proper size (no copy) (M, N, H)
+            # "trim" self.dh_raw_large to proper size (no copy) (T, B, H)
             dh_raw = self.dh_raw = self.dh_raw_large[0:self._curr_batch_seq_dim_length]
             ac_grad = self.ac_grad = self.ac_grad_large[0:self._curr_batch_seq_dim_length]
         else:
@@ -182,25 +182,25 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         if self.asserts_on:
             self.validate_zero_padding(dh_raw)
 
-        # reduce_sum (M, N, H) to (H, )
+        # reduce_sum (T, B, H) to (H, )
         np.sum(dh_raw, axis=(0, 1), out=self.db)
-        # we can't easily sum over the M, N dimensions using matrix multiplications, so we use a loop for the first
+        # we can't easily sum over the T, B dimensions using matrix multiplications, so we use a loop for the first
         # dimension only (time)
         self.dw_xh.fill(0.0)
         self.dw_hh.fill(0.0)
         hxd_array, hxh_array = self.hxd_array, self.hxh_array  # this seems to make a difference in run-time
         for t in xrange(curr_max_seq_length):
-            # (H, D) = (H, N) x (N, D) is the sum of outer products (H, 1) x (1, D) over the N sequences at time t
+            # (H, D) = (H, B) x (B, D) is the sum of outer products (H, 1) x (1, D) over the B sequences at time t
             # self.dw_xh += np.dot(dh_raw[t].T, self.data[t])
             np.dot(dh_raw[t].T, self.data[t], out=hxd_array)
             self.dw_xh += hxd_array
-            # (H, H) = (H, N) x (N, H) is the sum of outer products (H, 1) x (1, H) over the N sequences at time t
+            # (H, H) = (H, B) x (B, H) is the sum of outer products (H, 1) x (1, H) over the B sequences at time t
             # self.dw_hh += np.dot(dh_raw[t].T, self.hs[t])
             np.dot(dh_raw[t].T, self.hs[t], out=hxh_array)
             self.dw_hh += hxh_array
 
-        # non-batch was:  (N, H) x (H, D) = (N, D)
-        # now with batch: (M, N, H) x (H, D) = (M, N, D)
+        # non-batch was:  (T, H) x (H, D) = (T, D)
+        # now with batch: (T, B, H) x (H, D) = (T, B, D)
         if self._curr_num_sequences == self._max_num_sequences:
             # this is the common case
             # "trim" self.delta_err_large to proper size (no copy)
@@ -219,7 +219,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         """
         Reverse iteration starting from high_t - 1, finishing at low_t, both inclusive.
         Args:
-            delta_upper: error signal from upper layer, numpy.array of shape (M, N, output_dimension)
+            delta_upper: error signal from upper layer, numpy.array of shape (T, B, output_dimension)
             low_t: low index, inclusive
             high_t: high index, exclusive
         """
@@ -236,12 +236,12 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         ac_grad = self.ac_grad
         dh_next.fill(0.0)
         for t in xrange(high_t - 1, low_t - 1, -1):
-            # dh = delta_upper[t] + dh_next  # select at 1st dim from (M, N, H) : (H, ) -> (N, H)
+            # dh = delta_upper[t] + dh_next  # select at 1st dim from (T, B, H) : (H, ) -> (B, H)
             np.add(delta_upper[t], dh_next, out=dh)
             np.multiply(dh, ac_grad[t], out=self.dh_raw[t])
             # was dh_next = (H1, ) x (H1, H2) = (H2, )
             # dh_next = np.dot(self.w_hh.T, self.dh_raw[t])
-            # now (N, H1) x (H1, H2) = (N, H2)
+            # now (B, H1) x (H1, H2) = (B, H2)
             # dh_next = np.dot(self.dh_raw[t], self.w_hh)
             np.dot(self.dh_raw[t], self.w_hh, out=dh_next)
 
@@ -285,7 +285,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
     """ Same as RnnBatchLayer but time indexes the second dimension instead of the first.
     
-    Do not use. RnnBatchLayer is faster.
+    RnnBatchLayer is faster. Only use this version if transposing would be necessary and the total cost is more.
     """
 
     def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation='tanh', bptt_steps=None,
@@ -359,19 +359,19 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
         self.hs[:, 0] = self.hs_last[0:self._curr_num_sequences]  # makes a copy, which is desirable
 
-        # non-batch was: ((H, D) x (D, M))^T returns (M, H)
-        # now with batch: (N, M, D) x (D, H) returns (N, M, H)
-        # broadcasting: (N, M, H) + (H, ) = (N, M, H) + (1, H) -> (N, M, H) + (N, M, H)
+        # non-batch was: ((H, D) x (D, T))^T returns (T, H)
+        # now with batch: (B, T, D) x (D, H) returns (B, T, H)
+        # broadcasting: (B, T, H) + (H, ) = (B, T, H) + (1, H) -> (B, T, H) + (B, T, H)
         z_partial = np.dot(self.data, self.w_xh.T) + self.b
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
         for t in xrange(self._curr_max_seq_length):
-            # ((H, H) x (N, H)^T) returns (H, N)
+            # ((H, H) x (B, H)^T) returns (H, B)
             # z_partial_2 = np.dot(self.w_hh, self.hs[:, t].T)
-            # ((N, H) x (H, H)^T) returns (N, H)
+            # ((B, H) x (H, H)^T) returns (B, H)
             z_partial_2 = np.dot(self.hs[:, t], self.w_hh.T)
-            self.hs[:, t + 1] = self.activation(z_partial[:, t] + z_partial_2)  # (N, H)
+            self.hs[:, t + 1] = self.activation(z_partial[:, t] + z_partial_2)  # (B, H)
 
         for s in xrange(self._curr_num_sequences):
             seq_length = seq_lengths[s]
@@ -382,7 +382,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
             if seq_length < curr_batch_seq_dim_length:
                 self.hs[s, (seq_length+1):(curr_batch_seq_dim_length+1), :] = 0.0
 
-        return self.hs[:, 1:(curr_batch_seq_dim_length + 1)]  # (N, M, H)
+        return self.hs[:, 1:(curr_batch_seq_dim_length + 1)]  # (B, T, H)
 
     def backwards(self, delta_upper):
         # use RnnBatchLayer

@@ -5,6 +5,13 @@ from neural_base import ComponentNN, glorot_init
 
 
 class GruLayer(ComponentNN):
+    """Gated Recurrent Unit.
+
+    New state is computed here as: h_t = (1 - z_t) * h_{t-1} + z_t * candidate_t
+    while in tensorflow as: h_t = z_t * h_{t-1} + (1 - z_t) * candidate_t
+    We can exchange models between these implementations by negating all parameters of the update gate.
+    """
+
     def __init__(self, dim_d, dim_h, max_seq_length, dtype, asserts_on=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_p = 3 * self.dim_h * self.dim_d + 3 * self.dim_h * self.dim_h + 3 * self.dim_h
@@ -67,7 +74,10 @@ class GruLayer(ComponentNN):
         assert self._model is not None
         np.copyto(self.w, sd * np.random.standard_normal((3 * self.dim_h, self.dim_d)).astype(self._dtype))
         np.copyto(self.u, sd * np.random.standard_normal((3 * self.dim_h, self.dim_h)).astype(self._dtype))
-        self.b.fill(0.0)
+        # initialize to -1.0, 1.0 to (mostly) not update and not reset
+        self.b[:self.dim_h] = -1.0
+        self.b[self.dim_h:(2 * self.dim_h)] = 1.0
+        self.b[(2 * self.dim_h):] = 0.0
 
     def model_glorot_init(self):
         assert self._model is not None
@@ -75,7 +85,10 @@ class GruLayer(ComponentNN):
             np.copyto(w, glorot_init((self.dim_h, self.dim_d)).astype(self._dtype))
         for u in (self.u[:self.dim_h], self.u[self.dim_h:(2*self.dim_h)], self.u[(2*self.dim_h):]):
             np.copyto(u, glorot_init((self.dim_h, self.dim_h)).astype(self._dtype))
-        self.b.fill(0.0)
+        # initialize to -1.0, 1.0 to (mostly) not update and not reset
+        self.b[:self.dim_h] = -1.0
+        self.b[self.dim_h:(2 * self.dim_h)] = 1.0
+        self.b[(2 * self.dim_h):] = 0.0
 
     def forward_batch_debug(self, x):
         """ More readable, less optimized version than forward() which should be faster.

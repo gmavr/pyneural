@@ -1,12 +1,11 @@
 import numpy as np
 
-import neural_base as nb
+from context import pyneural
+
+import pyneural.neural_base as nb
 
 """
 Utility classes for exposing data sets as streams to be used together with neural_base.LossNN objects to fit models.
-These are orthogonal to the (similar) mechanism for doing in data_loader.py.
-
-Classes work correctly, but they are deprecated.
 """
 
 
@@ -170,3 +169,64 @@ class LossNNAndDataSetWithBoundary:
         # normalize per batch size
         return loss / self.batch_size, gradient / self.batch_size
 
+
+def test_with_boundaries():
+    data = np.array([[0, 2, 3], [1, 4, 1], [2, 6, 7], [3, 1, 3], [4, 5, 7], [5, 1, 1]])
+    labels = np.array([2, 1, 1, 0, 2, 0])
+    doc_ends = np.array([2, 3, 5])
+
+    dataset = InMemoryDataSetWithBoundaries(data, labels, doc_ends)
+
+    batch_size = 2
+    offset1, offset2 = 0, 0
+
+    data1, labels1, boundary = dataset.get_n_next(batch_size)
+    offset2 += len(data1)
+    assert offset2 == 2  # first doc partial
+    assert not boundary
+    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
+    assert np.alltrue(np.equal(labels1, labels1[offset1:offset2]))
+
+    offset1 = offset2
+    data1, labels1, boundary = dataset.get_n_next(batch_size)
+    offset2 += len(data1)
+    assert offset2 == 3  # first doc fully read
+    assert boundary
+    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
+    assert np.alltrue(np.equal(labels1, labels1[offset1:offset2]))
+
+    offset1 = offset2
+    data1, labels1, boundary = dataset.get_n_next(batch_size)
+    offset2 += len(data1)
+    assert offset2 == 4  # second doc fully read
+    assert boundary
+    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
+    assert np.alltrue(np.equal(labels1, labels[offset1:offset2]))
+
+    offset1 = offset2
+    data1, labels1, boundary = dataset.get_n_next(batch_size)
+    offset2 += len(data1)
+    assert offset2 == 6  # third doc fully read
+    assert boundary
+    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
+    assert np.alltrue(np.equal(labels1, labels[offset1:offset2]))
+
+    offset1, offset2 = 0, 0
+    data1, labels1, boundary = dataset.get_n_next(batch_size)
+    offset2 += len(data1)
+    assert offset2 == 2  # first doc partial
+    assert not boundary
+    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
+    assert np.alltrue(np.equal(labels1, labels[offset1:offset2]))
+
+    offset1 = offset2
+    data1, labels1, boundary = dataset.get_n_next(batch_size)
+    offset2 += len(data1)
+    assert offset2 == 3  # first doc fully read
+    assert boundary
+    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
+    assert np.alltrue(np.equal(labels1, labels1[offset1:offset2]))
+
+
+if __name__ == "__main__":
+    test_with_boundaries()

@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 import gradient_check_test_shared as gcs
-from layers import BidirRnnSoftMax, EmbeddingBidirRnnSoftMax
+from pyneural.layers import BidirRnnSoftMax, EmbeddingBidirRnnSoftMax
 
 
 def create_random_data_dense_inputs(loss_nn, num_samples):

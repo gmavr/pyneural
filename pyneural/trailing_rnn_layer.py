@@ -7,7 +7,9 @@ from rnn_batch_layer import RnnBatchLayer, glorot_init
 
 
 class TrailingRnnLayer(ComponentNN):
-    """ Standard Rnn Layer where only the last time step hidden state is returned.
+    """Standard Rnn Layer where only the last time step hidden state is returned. Typically used in "encoding" schemes.
+
+    First dimension is time, the second dimension is batch (sequence index).
 
     Different from regular RnnLayer only in the following:
     1) The hidden state of the last element only is returned (and gradient properly adjusted).
@@ -221,7 +223,9 @@ class TrailingRnnBatchLayer2(RnnBatchLayer):
 
 
 class TrailingRnnBatchLayer(RnnBatchLayer):
-    """ Standard Rnn Layer where only the last time step hidden state is returned.
+    """Standard Rnn Layer where only the last time step hidden state is returned. Typically used in "encoding" schemes.
+
+    First dimension is time, the second dimension is batch (sequence index).
 
     Marginally faster than TrailingRnnBatchLayer2.
     Not worth the trouble writing it, but passes gradient check and is in fact a few percentage points faster.
@@ -270,10 +274,10 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
             if self._seq_lengths[i] > 0:
                 delta_upper_my[self._seq_lengths[i] - self._curr_min_seq_length, i, :] = delta_upper[i]
 
-        # (M, N, H)
+        # (T, B, H)
         if self._curr_num_sequences == self._max_num_sequences:
             # this is the common case (or it should be)
-            # "trim" self.dh_raw_large to proper size (no copy) (M, N, H)
+            # "trim" self.dh_raw_large to proper size (no copy) (T, B, H)
             dh_raw = self.dh_raw = self.dh_raw_large[0:self._curr_batch_seq_dim_length]
             ac_grad = self.ac_grad = self.ac_grad_large[0:self._curr_batch_seq_dim_length]
         else:
@@ -298,7 +302,7 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
         dh_next.fill(0.0)
         # max() is required for the special case of 0-length sequences
         for t in xrange(curr_max_seq_length - 1, max(self._curr_min_seq_length - 2, -1), -1):
-            # select at 1st dim from (M, N, H) : (H, ) -> (N, H)
+            # select at 1st dim from (T, B, H) : (H, ) -> (B, H)
             np.add(delta_upper_my[t - self._curr_min_seq_length + 1], dh_next, out=dh)
             np.multiply(dh, ac_grad[t], out=dh_raw[t])
             np.dot(dh_raw[t], self.w_hh, out=dh_next)
@@ -311,24 +315,24 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
         if self.asserts_on:
             self.validate_zero_padding(dh_raw)
 
-        # reduce_sum (M, N, H) to (H, )
+        # reduce_sum (T, B, H) to (H, )
         np.sum(dh_raw, axis=(0, 1), out=self.db)
 
-        # we can't easily sum over the M, N dimensions using matrix multiplications, so we use a loop for the first
+        # we can't easily sum over the T, B dimensions using matrix multiplications, so we use a loop for the first
         # dimension only (time)
         self.dw_xh.fill(0.0)
         self.dw_hh.fill(0.0)
         hxd_array, hxh_array = self.hxd_array, self.hxh_array  # this seems to make a difference in run-time
         for t in xrange(curr_max_seq_length):
-            # (H, D) = (H, N) x (N, D) is the sum of outer products (H, 1) x (1, D) over the N sequences at time t
+            # (H, D) = (H, B) x (B, D) is the sum of outer products (H, 1) x (1, D) over the B sequences at time t
             np.dot(dh_raw[t].T, self.data[t], out=hxd_array)
             self.dw_xh += hxd_array
-            # (H, H) = (H, N) x (N, H) is the sum of outer products (H, 1) x (1, H) over the N sequences at time t
+            # (H, H) = (H, B) x (B, H) is the sum of outer products (H, 1) x (1, H) over the B sequences at time t
             np.dot(dh_raw[t].T, self.hs[t], out=hxh_array)
             self.dw_hh += hxh_array
 
-        # non-batch was:  (N, H) x (H, D) = (N, D)
-        # now with batch: (M, N, H) x (H, D) = (M, N, D)
+        # non-batch was:  (T, H) x (H, D) = (T, D)
+        # now with batch: (T, B, H) x (H, D) = (T, B, D)
         if self._curr_num_sequences == self._max_num_sequences:
             # this is the common case
             # "trim" self.delta_err_large to proper size (no copy)

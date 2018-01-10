@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 
 import gradient_check_test_shared as gcs
-import neural_layer as nl
-from ce_l2_loss import LayerWithL2Loss
+import pyneural.neural_layer as nl
+from pyneural.ce_l2_loss import LayerWithL2Loss
 
 
 class TestNeuralLayer(gcs.GradientCheckTestShared):

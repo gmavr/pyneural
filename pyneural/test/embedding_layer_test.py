@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-import ce_l2_loss
-import embedding_layer as em
 import gradient_check_test_shared as gcs
+import pyneural.ce_l2_loss as ce_l2_loss
+import pyneural.embedding_layer as em
 
 
 def create_random_data(em_object, num_samples):
@@ -106,9 +106,9 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         self.assertTrue(np.alltrue(np.equal(em_obj_batch.get_model(), em_obj_batch.get_built_model())))
         self.assertTrue(np.alltrue(np.equal(em_obj_batch.get_gradient(), em_obj_batch.get_built_gradient())))
 
-    def test_gradient(self):
-        num_samples = 15
-        dim_k, dim_d = 10, 20
+    def test_gradient_sparse_samples(self):
+        num_samples = 10
+        dim_k, dim_d = 15, 20
         dtype, tolerance = np.float64, 1e-12
 
         em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
@@ -196,31 +196,6 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         self.assertTrue(np.alltrue(np.equal(gradient1[2], np.zeros((dim_d, )))))
         self.assertTrue(np.alltrue(np.equal(gradient1[8], delta_err[4])))
         self.assertTrue(np.alltrue(np.equal(gradient1[19], delta_err[3])))
-
-    # def test_show_running_time(self):
-    #     num_samples = 1000
-    #     dim_k, dim_d = 75000, 200
-    #
-    #     dtype = np.float64
-    #
-    #     em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
-    #     loss_nn = ce_l2_loss.LayerWithL2Loss(em_obj)
-    #
-    #     loss_nn.init_parameters_storage()
-    #
-    #     np.random.seed(seed=47)
-    #     em_obj.model_normal_init(1.0)
-    #
-    #     y_true = np.random.standard_normal((num_samples, dim_d)).astype(dtype)
-    #     x = np.random.randint(0, dim_k, num_samples)
-    #
-    #     start_time = time.time()
-    #
-    #     for i in range(10):
-    #         loss_nn.forward_backwards(x, y_true)
-    #
-    #     time_elapsed = (time.time() - start_time)
-    #     print("forward_backwards: time elapsed: %.4g sec" % time_elapsed)
 
 
 if __name__ == "__main__":

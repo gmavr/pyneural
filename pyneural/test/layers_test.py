@@ -3,14 +3,13 @@ import unittest
 
 import numpy as np
 
-import ce_softmax_layer as ce_sm
-import dataset as dst
-import embedding_layer as em
 import gradient_check as gc
 import gradient_check_test_shared as gcs
-import layers
-import rnn_batch_layer as rb
-
+import pyneural.ce_softmax_layer as ce_sm
+import pyneural.dataset as dst
+import pyneural.embedding_layer as em
+import pyneural.layers as layers
+import pyneural.rnn_batch_layer as rb
 
 """ Tests of various multi-layer networks involving RNNs.
 """

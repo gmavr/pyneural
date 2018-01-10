@@ -1,13 +1,12 @@
-import time
 import unittest
 
 import numpy as np
 
 import gradient_check_test_shared as gcs
-import rnn_batch_layer as rbl
-import rnn_layer as rl
-from ce_l2_loss import BatchSequencesWithL2Loss
-from neural_base import BatchSequencesComponentNN
+import pyneural.rnn_batch_layer as rbl
+import pyneural.rnn_layer as rl
+from pyneural.ce_l2_loss import BatchSequencesWithL2Loss
+from pyneural.neural_base import BatchSequencesComponentNN
 
 
 def create_random_params(rnn_batch):
@@ -74,8 +73,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         max_seq_length = 10
         dtype, tolerance = np.float64, 5e-8
 
-        batch_layer = rbl.RnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh",
-                                        bptt_steps=max_seq_length)
+        batch_layer = rbl.RnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh")
         loss_and_layer = BatchSequencesWithL2Loss(batch_layer)
 
         np.random.seed(seed=47)
@@ -104,8 +102,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         max_seq_length = 8
         dtype, tolerance = np.float64, 1e-8
 
-        batch_layer = rbl.RnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh",
-                                        bptt_steps=max_seq_length)
+        batch_layer = rbl.RnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh")
         loss_and_layer = BatchSequencesWithL2Loss(batch_layer)
 
         np.random.seed(seed=47)
@@ -275,88 +272,6 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         self.assertTrue(np.alltrue(np.equal(rnn_batch_layer_1.get_gradient(), rnn_batch_layer_1.get_built_gradient())))
         self.assertTrue(np.shares_memory(grad_storage_1, rnn_batch_layer_1.get_gradient()))
 
-    def test_time(self):
-        """
-        Measures times for batched versions against loop over the non-batched versions.
-        Note: Batches are FULL. Effective performance of batched versions will be lower with 0-padded sequences.
-        """
-        dim_d, dim_h = 25, 50
-        bptt_steps = 10
-        batch_size = 20
-        max_seq_length = 20
-        num_max_seq_blocks = 50
-        dtype = np.float64
-
-        rnn_layer = rl.RnnLayer(dim_d, dim_h, max_seq_length, dtype, bptt_steps=bptt_steps)
-        rnn_batch_layer_t1 = rbl.RnnBatchLayerTime2nd(dim_d, dim_h, max_seq_length, batch_size, dtype,
-                                                      bptt_steps=bptt_steps)
-        rnn_batch_layer = rbl.RnnBatchLayer(dim_d, dim_h, max_seq_length, batch_size, dtype, bptt_steps=bptt_steps)
-
-        model = 0.1 * np.random.standard_normal((rnn_layer.get_num_p(),)).astype(dtype)
-        hs_init = 0.01 * np.random.standard_normal((batch_size, dim_h)).astype(dtype)
-
-        rnn_layer.init_parameters_storage(model)
-        rnn_batch_layer_t1.init_parameters_storage(model)
-        rnn_batch_layer.init_parameters_storage(model)
-
-        data_t = 0.5 * np.random.standard_normal((batch_size, num_max_seq_blocks * max_seq_length, dim_d)).astype(dtype)
-        data = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
-        for i in range(num_max_seq_blocks * max_seq_length):
-            data[i] = np.copy(data_t[:, i, :])
-
-        start_time = time.time()
-        for i in range(batch_size):
-            rnn_layer.set_init_h(hs_init[i])
-            for j in range(num_max_seq_blocks):
-                rnn_layer.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)])
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d x %d invocations: %.4g sec" % (batch_size, num_max_seq_blocks, time_elapsed))
-
-        seq_lengths = np.empty((batch_size, ), dtype=np.int)
-        seq_lengths.fill(max_seq_length)
-
-        start_time = time.time()
-        rnn_batch_layer_t1.set_init_h(hs_init)
-        rnn_batch_layer.set_init_h(hs_init)
-        for j in range(num_max_seq_blocks):
-            rnn_batch_layer_t1.forward(data_t[:, (j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
-
-        start_time = time.time()
-        rnn_batch_layer.set_init_h(hs_init)
-        for j in range(num_max_seq_blocks):
-            rnn_batch_layer.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
-
-        # forward-backward
-
-        delta_upper1 = 0.1 * np.random.standard_normal((batch_size, num_max_seq_blocks * max_seq_length, dim_h))\
-            .astype(dtype)
-        delta_upper2 = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_h), dtype=dtype)
-        for i in range(num_max_seq_blocks * max_seq_length):
-            delta_upper2[i] = np.copy(delta_upper1[:, i, :])
-
-        start_time = time.time()
-        for i in range(batch_size):
-            rnn_layer.set_init_h(hs_init[i])
-            for j in range(num_max_seq_blocks):
-                rnn_layer.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)])
-                rnn_layer.backwards(delta_upper1[i, (j * max_seq_length):((j + 1) * max_seq_length)])
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d x %d invocations: %.4g sec" % (batch_size, num_max_seq_blocks, time_elapsed))
-
-        start_time = time.time()
-        rnn_batch_layer.set_init_h(hs_init)
-        for j in range(num_max_seq_blocks):
-            rnn_batch_layer.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
-            rnn_batch_layer.backwards(delta_upper2[(j * max_seq_length):((j + 1) * max_seq_length)])
-        time_elapsed = (time.time() - start_time)
-        print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
-
-        # batch size, backprop speedup |  (dim_d, dim_h = 25, 50  max_seq_length = 20 num_max_seq_blocks = 50)
-        # 2 1.1 | 5, 1.8 | 10, 2.5 | 20, 3.5 | 50, 4.5 | 100, 4.8 | 200 5.3
 
 if __name__ == "__main__":
     unittest.main()

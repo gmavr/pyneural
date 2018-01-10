@@ -2,10 +2,10 @@ import unittest
 
 import numpy as np
 
-import drop_out_layer as dl
 import gradient_check_test_shared as gcs
-import neural_layer as nl
-from neural_base import LossNN
+import pyneural.drop_out_layer as dl
+import pyneural.neural_layer as nl
+from pyneural.neural_base import LossNN
 
 
 class DoubleNeuralLayerWithDropoutL2Loss(LossNN):

@@ -8,10 +8,10 @@ class EmbeddingLayer(ComponentNN):
         self.dim_k = dim_k
         self.dim_d = dim_d
         super(EmbeddingLayer, self).__init__(self.dim_k * self.dim_d, dtype)
-        # dk_threshold threshold is reasonable but arbitrary, no attempt was made to determine it by measuring effect.
+        # dk_threshold is reasonable but mostly arbitrary, little attempt was made to determine it by measuring effect.
         # It was found clearly advantageous to selectively zero out gradient for _num_samples < < dim_k * dim_d as
         # opposed to setting the whole gradient array to 0.
-        self.dk_threshold = int(0.1 * self.dim_k * self.dim_d)
+        self.dk_threshold = int(0.05 * self.dim_k * self.dim_d) if self.dim_k * self.dim_d < 200000 else 10000
         self._num_samples = 0
         self.embedding_matrix = None
         self._grad2 = None
@@ -128,6 +128,8 @@ class EmbeddingLayerBatch(BatchSequencesComponentNN):
 
         self.y = self.embedding_matrix[x]
 
+        # zeroing out is for validating correctness rather than required for correctness, as higher layers do not read
+        # beyond end-of-sequence data (other than verifying that they are zeroed out)
         self.zero_pad_overwrite(self.y)
 
         return self.y
@@ -144,9 +146,19 @@ class EmbeddingLayerBatch(BatchSequencesComponentNN):
 
         # unfortunately this can't be vectorized, because the same element self._grad2[i1, i2] may need to be updated
         # multiple times. "In particular, repeated indices do not result in the value getting added twice"
+        # Memory access pattern of double loop is not ideal, but restructuring the loops as commented out did not
+        # improve run-time even for large dimensionalities.
         for j in xrange(self._curr_num_sequences):
             for i in xrange(self._seq_lengths[j]):
                 self._grad2[self.x[i, j], :] += delta_err[i, j]  # += operator is in-place
+
+        # min_seq_length = np.min(self._seq_lengths)
+        # for i in xrange(min_seq_length):
+        #     for j in xrange(self._curr_num_sequences):
+        #         self._grad2[self.x[i, j], :] += delta_err[i, j]
+        # for j in xrange(self._curr_num_sequences):
+        #     for i in xrange(min_seq_length, self._seq_lengths[j]):
+        #         self._grad2[self.x[i, j], :] += delta_err[i, j]
 
         # derivative wr to non-continuous quantities is undefined
         return None
