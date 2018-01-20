@@ -4,11 +4,11 @@ import numpy as np
 
 from context import pyneural
 
-import dataset as dst
 import pyneural.embedding_layer as em
 import pyneural.layers as layers
 import pyneural.sgd as sgd
 import pyneural.test.bidir_rnn_layer_test as br_test
+import pyneural.test.dataset as dst
 from pyneural.test.layers_test import create_rnn_random_data
 
 """ Samples of model fitting.

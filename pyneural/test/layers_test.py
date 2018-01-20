@@ -3,10 +3,10 @@ import unittest
 
 import numpy as np
 
+import dataset as dst
 import gradient_check as gc
 import gradient_check_test_shared as gcs
 import pyneural.ce_softmax_layer as ce_sm
-import pyneural.dataset as dst
 import pyneural.embedding_layer as em
 import pyneural.layers as layers
 import pyneural.rnn_batch_layer as rb

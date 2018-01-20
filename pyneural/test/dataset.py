@@ -1,7 +1,5 @@
 import numpy as np
 
-from context import pyneural
-
 import pyneural.neural_base as nb
 
 """
@@ -46,7 +44,6 @@ class InMemoryDataSet:
 class InMemoryDataSetWithBoundaries:
     def __init__(self, data, labels, doc_ends):
         """ Initialize data set with M documents consisting of N in total sequential items.
-        
         Args:
             data: sequence of D-dimensional items of all documents appended serially. numpy array of shape (N, D).
             labels: labels of each item. numpy array of shape (N, ).
@@ -71,7 +68,6 @@ class InMemoryDataSetWithBoundaries:
 
     def get_n_next(self, num_samples):
         """ Returns up to num_samples from the current position.
-        
         Returns exactly num_samples if the end of current document or end of corpus is not reached, otherwise returns
         enough to reach the end of current document or end of corpus.
         Args:
@@ -229,4 +225,6 @@ def test_with_boundaries():
 
 
 if __name__ == "__main__":
+    # Executing this as a standalone script fails without modifications in package resolution.
+    # However, running it from within the pycharm IDE succeeds.
     test_with_boundaries()
