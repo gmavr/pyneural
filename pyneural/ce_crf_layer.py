@@ -10,25 +10,47 @@ class CRFLayer(LossNN):
     Efficient vectorized implementation.
     """
 
-    def __init__(self, dim_k, dtype, asserts_on=True):
+    def __init__(self, dim_k, max_seq_length, dtype, asserts_on=True):
+        """
+        Args:
+            dim_k: number of classes
+            max_seq_length: maximum sequence length for any sequence that will be presented in forward and backwards.
+            dtype: numpy type of all parameters and inputs: np.float32 or np.float64
+            asserts_on: perform invariant and consistency assertions. Recommended to set to False only at final steps of
+                training large models
+        """
         self.dim_k = dim_k
         super(CRFLayer, self).__init__(self.dim_k * self.dim_k, dtype)
-        self.a_trans = None
-        self.d_a_trans = None
+        self.max_seq_length = max_seq_length
+        self.asserts_on = asserts_on
+        self.num_samples_prev = -1
+        self.a_trans = None  # transition scores, i.e. the model, shape (K, K)
+        self.d_a_trans = None  # gradient of the model
         self.p_hat = None
-        self.data, self.labels = None, None
+        self.data, self.labels = None, None  # (N, K), (K, ) externally owned
         self.prev_label = None
         self.delta_err = None
-        # forward and reverse scores, shape (N, K)
-        # self.s[t] (self.s_reverse) holds forward (reverse) scores for each of K classes at time t
-        self.s = self.s_reverse = None, None
-        # forward and reverse scores minus the scale term self.c_norm, shape (N, K)
-        self.rs = self.rs_reverse = None, None
-        self.ps = None  # partial forward scores, shape (N, K, K)
+        # self.s, self.s_reverse hold the trellis, the scores of paths in the log-domain. Shape: (N, K)
+        # self.s[t] (self.s_reverse[t]) holds the forward (reverse) scores for each of K classes at time t.
+        # Score self.s[t, k] is the log sum exp of scores of all possible (forward) paths starting from self.prev_label
+        # at time ts = -1 and ending at label k at time t. (For t = 0, that is equal to self.a_trans[0, k] + data[0, k])
+        self.s = np.empty((self.max_seq_length, self.dim_k), dtype=self._dtype)
+        # Score self.s_reverse[t, k] is the log sum exp of scores of all possible (backward) paths starting from any
+        # label at time ts = N - 1 and ending at label k at time t. (For t = N - 1, that is equal to 0 and is omitted).
+        self.s_reverse = np.empty((self.max_seq_length - 1, self.dim_k), dtype=self._dtype)
+        # scale term used for numerical stability at time N - 1 (no need to remember the scaling terms for other times)
+        self.scale_term = None
+        # self.rs[0:num_samples] and self.rs_reverse[0:num_samples] are computed in the forward pass and are only read
+        # in the backward pass (back-propagation). self.rs[num_samples - 1] is also used by self.all_seq_log_sum_exp(.)
+        # self.rs[t] = self.r[t] - scale_term[t], shape (N, K)
+        self.rs = np.empty((self.max_seq_length, self.dim_k), dtype=self._dtype)
+        # self.rs_reverse[t] = self.s_reverse[t] - scale_term[t], shape (N, K)
+        self.rs_reverse = np.empty((self.max_seq_length, self.dim_k), dtype=self._dtype)
+        # Partial forward scores. Shape (N, K, K)
+        self.ps = None
         self.rs_reverse_first, self.s_reverse_first = None, None  # debug only
-        # scale term used for numerical stability at time t, shape (N, )
-        self.c_norm = None
-        self.asserts_on = asserts_on
+        # scratch buffer
+        self.buf_k2 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -71,7 +93,7 @@ class CRFLayer(LossNN):
         """
         assert data.ndim == 2 and data.shape[1] == self.dim_k
         assert data.dtype == self._dtype
-        assert data.shape[0] >= 1
+        assert 1 <= data.shape[0] <= self.max_seq_length
         assert self.prev_label is not None
 
         num_samples = data.shape[0]
@@ -81,52 +103,57 @@ class CRFLayer(LossNN):
 
         # forward sequence
 
-        self.s = np.empty((num_samples, self.dim_k), dtype=self._dtype)
-        self.rs = np.empty((num_samples, self.dim_k), dtype=self._dtype)
-        self.c_norm = np.empty((num_samples, ), dtype=self._dtype)
-        self.ps = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
+        # "trim" to proper size (no copy)
+        s = self.s[0:num_samples]
+        rs = self.rs[0:num_samples]
+        ps = self.ps = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
 
         s0_1 = np.empty((self.dim_k, ), dtype=self._dtype)
         for j in xrange(self.dim_k):
             s0_1[j] = self.a_trans[self.prev_label, j] + data[0, j]
 
-        self.s[0] = self.a_trans[self.prev_label] + data[0]  # (K, )
-        self.c_norm[0] = np.max(self.s[0])
-        self.ps[0, self.prev_label] = np.copy(self.s[0])  # important to copy, self.ps will be modified in back-prop
-        self.rs[0] = self.s[0] - self.c_norm[0]  # not useful, for completeness only
+        s[0] = self.a_trans[self.prev_label] + data[0]  # (K, )
+        scale_term = np.max(s[0])
+        # ps[0] except for ps[0, self.prev_label] is never used, do not bother initializing
+        ps[0, self.prev_label] = np.copy(s[0])  # important to copy, ps will be modified in back-prop
+        rs[0] = s[0] - scale_term
 
-        assert np.array_equal(self.s[0], s0_1)
+        assert np.array_equal(s[0], s0_1)
 
         for t in xrange(1, num_samples):
             tmp1 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
             exp_s = np.empty((self.dim_k, ), dtype=self._dtype)
             for j in xrange(self.dim_k):
-                tmp1[j] = self.s[t - 1] + self.a_trans[:, j] + data[t, j]  # (K, )
+                tmp1[j] = s[t - 1] + self.a_trans[:, j] + data[t, j]  # (K, )
                 exp_s[j] = np.sum(np.exp(tmp1[j]))  # sum over i=1..K
 
             # broadcasting: (K, 1) + (K, K) + (K, ) -> (K, 1) + (K, K) + (1, K)
             # first column vector is replicated K times, self.data[t] is treated as row vector and replicated K times
-            s_reshaped = np.reshape(self.s[t - 1], (self.dim_k, 1))
-            self.ps[t] = s_reshaped + self.a_trans + self.data[t]
+            s_reshaped = np.reshape(s[t - 1], (self.dim_k, 1))
+            ps[t] = s_reshaped + self.a_trans + self.data[t]
 
-            assert np.array_equal(self.ps[t], tmp1.T)
+            assert np.array_equal(ps[t], tmp1.T)
 
-            # self.s[t], self.rs[t] = self.log_sum_exp(self.ps[t], axis=0)
-            # self.c_norm[t] = self.s[t, 0] - self.rs[t, 0]
-            self.c_norm[t] = self.log_sum_exp_opt(self.ps[t], axis=0, out_rs_vector=self.rs[t], out_s_vector=self.s[t])
+            # s[t], rs[t] = self.log_sum_exp(ps[t], axis=0)
+            # scale_term = s[t, 0] - rs[t, 0]
+            scale_term = self._log_sum_exp_opt(ps[t], axis=0, out_rs_vector=rs[t], out_s_vector=s[t])
             s1 = np.log(exp_s)
-            assert np.allclose(s1.T, self.s[t], rtol=tolerance)
+            assert np.allclose(s1.T, s[t], rtol=tolerance)
+
+        self.scale_term = scale_term
 
         # backward sequence
 
-        if num_samples == 1:
-            self.rs_reverse = np.zeros((1, self.dim_k), dtype=self._dtype)
-            return
+        # "trim" to proper sizes (no copies)
+        s_reverse = self.s_reverse[0:(num_samples - 1)]
+        rs_reverse = self.rs_reverse[0:num_samples]
 
-        self.s_reverse = np.empty((num_samples - 1, self.dim_k), dtype=self._dtype)
-        self.rs_reverse = np.empty((num_samples, self.dim_k), dtype=self._dtype)
-        # self.rs_reverse[num_samples-1] needs to exist for dimension compatibility in backpropagation
-        self.rs_reverse[-1] = np.zeros((1, self.dim_k), dtype=self._dtype)
+        # rs_reverse[-1] needs to exist for dimension compatibility in backpropagation
+        rs_reverse[-1].fill(0.0)
+        self.num_samples_prev = num_samples
+
+        if num_samples == 1:
+            return
 
         t = num_samples - 1
         tmp1 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
@@ -140,10 +167,10 @@ class CRFLayer(LossNN):
         assert np.array_equal(prs, tmp1)
 
         # numerically stable version not really compelling for first iteration, but easier to just do it
-        self.log_sum_exp_opt(prs, axis=1, out_rs_vector=self.rs_reverse[t - 1], out_s_vector=self.s_reverse[t - 1])
+        self._log_sum_exp_opt(prs, axis=1, out_rs_vector=rs_reverse[t - 1], out_s_vector=s_reverse[t - 1])
 
-        s_reverse = np.log(exp_s_reverse)  # (1, K)
-        assert np.allclose(s_reverse, self.s_reverse[t - 1], rtol=tolerance)
+        s_reverse_comp = np.log(exp_s_reverse)  # (1, K)
+        assert np.allclose(s_reverse_comp, s_reverse[t - 1], rtol=tolerance)
 
         # s_reverse[num_samples - 2, j] == S'_(N-1, j). It holds S'_(N, j) == 0 for all j and therefore omitted in code
 
@@ -151,24 +178,24 @@ class CRFLayer(LossNN):
             tmp1 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
             exp_s_reverse = np.empty((self.dim_k, ), dtype=self._dtype)
             for j in xrange(self.dim_k):
-                tmp1[j] = self.a_trans[j] + data[t] + self.s_reverse[t]  # (K, )
+                tmp1[j] = self.a_trans[j] + data[t] + s_reverse[t]  # (K, )
                 exp_s_reverse[j] = np.sum(np.exp(tmp1[j]))  # sum over i=1..K
 
             # broadcasting of (K, K) + (K, ) + (K, ):
             # the 2 row vectors are replicated K times
-            prs = self.a_trans + data[t] + self.s_reverse[t]  # (K, K)
+            prs = self.a_trans + data[t] + s_reverse[t]  # (K, K)
             assert np.array_equal(prs, tmp1)
 
-            s_reverse = np.log(exp_s_reverse)
-            # self.s_reverse[t - 1], self.rs_reverse[t - 1] = self.log_sum_exp(prs, 1)
-            self.log_sum_exp_opt(prs, axis=1, out_rs_vector=self.rs_reverse[t - 1], out_s_vector=self.s_reverse[t - 1])
-            assert np.allclose(s_reverse, self.s_reverse[t - 1], rtol=tolerance)
+            s_reverse_comp = np.log(exp_s_reverse)
+            # s_reverse[t - 1], rs_reverse[t - 1] = self.log_sum_exp(prs, 1)
+            self._log_sum_exp_opt(prs, axis=1, out_rs_vector=rs_reverse[t - 1], out_s_vector=s_reverse[t - 1])
+            assert np.allclose(s_reverse_comp, s_reverse[t - 1], rtol=tolerance)
 
     def compute_trellis(self, data):
         if self.asserts_on:
             assert data.ndim == 2 and data.shape[1] == self.dim_k
             assert data.dtype == self._dtype
-            assert data.shape[0] >= 1
+            assert 1 <= data.shape[0] <= self.max_seq_length
             assert self.prev_label is not None
 
         num_samples = data.shape[0]
@@ -176,44 +203,55 @@ class CRFLayer(LossNN):
 
         # forward sequence
 
-        self.s = np.empty((num_samples, self.dim_k), dtype=self._dtype)
-        self.rs = np.empty((num_samples, self.dim_k), dtype=self._dtype)
-        self.c_norm = np.empty((num_samples, ), dtype=self._dtype)
-        self.ps = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
+        # "trim" to proper sizes (no copies)
+        s = self.s[0:num_samples]
+        rs = self.rs[0:num_samples]
+        if self.num_samples_prev != num_samples:
+            self.ps = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
+        ps = self.ps
 
-        self.s[0] = self.a_trans[self.prev_label] + data[0]  # (K, )
-        self.c_norm[0] = np.max(self.s[0])
-        self.ps[0, self.prev_label] = np.copy(self.s[0])  # important to copy, self.ps will be modified in back-prop
-        self.rs[0] = self.s[0] - self.c_norm[0]  # not useful, for completeness only
+        s[0] = self.a_trans[self.prev_label] + data[0]  # (K, )
+        scale_term = np.max(s[0])
+        # ps[0] except for ps[0, self.prev_label] is never used, do not bother initializing
+        ps[0, self.prev_label] = np.copy(s[0])  # important to copy, ps will be modified in back-prop
+        rs[0] = s[0] - scale_term
 
         # This recursively updates quantities at time t from their values at time t-1, therefore it cannot vectorized.
         # A loop is necessary.
         for t in xrange(1, num_samples):
             # broadcasting: (K, 1) + (K, K) + (K, ) -> (K, 1) + (K, K) + (1, K)
             # first column vector is replicated K times, self.data[t] is treated as row vector and replicated K times
-            s_reshaped = np.reshape(self.s[t - 1], (self.dim_k, 1))
-            self.ps[t] = s_reshaped + self.a_trans + self.data[t]
-            # self.s[t], self.rs[t] = self.log_sum_exp(self.ps[t], axis=0)
-            # self.c_norm[t] = self.s[t, 0] - self.rs[t, 0]
-            self.c_norm[t] = self.log_sum_exp_opt(self.ps[t], axis=0, out_rs_vector=self.rs[t], out_s_vector=self.s[t])
+            s_reshaped = np.reshape(s[t - 1], (self.dim_k, 1))
+            # ps[t] = s_reshaped + self.a_trans + self.data[t]
+            np.add(s_reshaped, self.a_trans, out=ps[t])
+            np.add(ps[t], self.data[t], out=ps[t])
+            # s[t], rs[t] = self.log_sum_exp(ps[t], axis=0)
+            # scale_term = s[t, 0] - rs[t, 0]
+            scale_term = self._log_sum_exp_opt(ps[t], axis=0, out_rs_vector=rs[t], out_s_vector=s[t])
+
+        self.scale_term = scale_term
 
         # backward sequence
 
+        # "trim" to proper sizes (no copies)
+        s_reverse = self.s_reverse[0:(num_samples - 1)]
+        rs_reverse = self.rs_reverse[0:num_samples]
+
+        # rs_reverse[-1] needs to exist for dimension compatibility in backpropagation
+        rs_reverse[-1].fill(0.0)
+        self.num_samples_prev = num_samples
+
         if num_samples == 1:
-            self.rs_reverse = np.zeros((1, self.dim_k), dtype=self._dtype)
             return
 
-        self.s_reverse = np.empty((num_samples - 1, self.dim_k), dtype=self._dtype)
-        self.rs_reverse = np.empty((num_samples, self.dim_k), dtype=self._dtype)
-        # self.rs_reverse[-1] needs to exist for dimension compatibility in backpropagation
-        self.rs_reverse[-1] = np.zeros((1, self.dim_k), dtype=self._dtype)
-
+        prs = self.buf_k2
         t = num_samples - 1
         # broadcasting of (K, K) + (K, ) -> (K, K) + (1, K): the row vector data[t] is replicated K times
-        prs = self.a_trans + data[t]  # (K, K)
+        # prs = self.a_trans + data[t]  # (K, K)
+        np.add(self.a_trans, data[t], out=prs)
 
         # numerically stable version not really compelling for first iteration, but easier to just do it
-        self.log_sum_exp_opt(prs, axis=1, out_rs_vector=self.rs_reverse[t - 1], out_s_vector=self.s_reverse[t - 1])
+        self._log_sum_exp_opt(prs, axis=1, out_rs_vector=rs_reverse[t - 1], out_s_vector=s_reverse[t - 1])
 
         # s_reverse[num_samples - 2, j] == S'_(N-1, j). It holds S'_(N, j) == 0 for all j and therefore omitted in code
 
@@ -222,24 +260,26 @@ class CRFLayer(LossNN):
         for t in xrange(num_samples - 2, 0, -1):
             # broadcasting of (K, K) + (K, ) + (K, ):
             # the 2 row vectors are replicated K times
-            prs = self.a_trans + data[t] + self.s_reverse[t]  # (K, K)
-            # self.s_reverse[t - 1], self.rs_reverse[t - 1] = self.log_sum_exp(prs, 1)
-            self.log_sum_exp_opt(prs, axis=1, out_rs_vector=self.rs_reverse[t - 1], out_s_vector=self.s_reverse[t - 1])
+            # prs = self.a_trans + data[t] + s_reverse[t]  # (K, K)
+            np.add(self.a_trans, data[t], out=prs)
+            np.add(prs, s_reverse[t], out=prs)
+            # s_reverse[t - 1], rs_reverse[t - 1] = self.log_sum_exp(prs, 1)
+            self._log_sum_exp_opt(prs, axis=1, out_rs_vector=rs_reverse[t - 1], out_s_vector=s_reverse[t - 1])
 
     @staticmethod
-    def log_sum_exp(s_array, axis):
+    def _log_sum_exp(s_array, axis):
         """ Computes log sum of 2-dim array along given dimension in a numerically stable fashion
         
         Args:
-            s_array: current model parameters, np.array of shape (K, K)
+            s_array: np.array of shape (K, K)
             axis: dimension across which summation occurs
         Returns:
             s_vector: log sum 
-            rs_vector: log sum excluding the scale offset number
+            rs_vector: log sum minus the scaling term
         """
         # assert s_array.shape == (self.dim_k, self.dim_k)
 
-        # numerical stability trick: Because x_i can be potentially huge numbers, we subtract from all the same number.
+        # numerical stability trick: Because x_i can be potentially huge numbers, we subtract their max from all.
         # log(sum_i(exp(x_i))) = log(sum_i(exp(x_i-y+y))) = log(exp(y)*sum_i(exp(x_i-y))) = y + sum_i(exp(x_i-y)))
 
         scale_term = np.max(s_array)
@@ -248,11 +288,11 @@ class CRFLayer(LossNN):
 
         return s_vector, rs_vector
 
-    @staticmethod
-    def log_sum_exp_opt(s_array, axis, out_rs_vector, out_s_vector):
+    def _log_sum_exp_opt(self, s_array, axis, out_rs_vector, out_s_vector):
         """ Same as log_sum_exp, but output is in-place of supplied vector holders. """
-        # numerical stability trick: Because x_i can be potentially huge numbers, we subtract from all the same number.
-        # log(sum_i(exp(x_i))) = log(sum_i(exp(x_i-y+y))) = log(exp(y)*sum_i(exp(x_i-y))) = y + sum_i(exp(x_i-y)))
+
+        if self.asserts_on:
+            assert s_array.shape == (self.dim_k, self.dim_k)
 
         # following lines compute in-place:
         # rs_vector = np.log(np.sum(np.exp(s_array - scale_term), axis=axis))
@@ -260,9 +300,11 @@ class CRFLayer(LossNN):
 
         scale_term = np.max(s_array)
 
-        z1 = s_array - scale_term
-        np.exp(z1, out=z1)
-        np.sum(z1, axis=axis, out=out_rs_vector)
+        # in-place: self.buf_k2 = s_array - scale_term
+        buf_k2 = self.buf_k2
+        np.subtract(s_array, scale_term, out=buf_k2)
+        np.exp(buf_k2, out=buf_k2)
+        np.sum(buf_k2, axis=axis, out=out_rs_vector)
         np.log(out_rs_vector, out=out_rs_vector)
 
         np.add(out_rs_vector, scale_term, out=out_s_vector)
@@ -272,7 +314,8 @@ class CRFLayer(LossNN):
     def _validate_labels(self, labels):
         assert labels.ndim == 1
         assert len(self.data) == len(labels)
-        # assert labels.dtype == np.int
+        # np.uint{8,16,32} are not subtypes of np.uint (on mac os)
+        # assert np.issubdtype(labels.dtype, np.int) or np.issubdtype(labels.dtype, np.uint)
         assert np.max(labels) < self.dim_k and 0 <= np.min(labels)
 
     def score_for_seq(self, labels):
@@ -290,15 +333,17 @@ class CRFLayer(LossNN):
         # See: https://docs.scipy.org/doc/numpy/reference/arrays.indexing.html#advanced-indexing
         return score
 
-    def score_for_correct_seq(self):
-        return self.score_for_seq(self.labels)
-
     def all_seq_log_sum_exp(self):
+        """Return the log sum exp of the scores of all possible sequences.
+        Can be called after the trellis has been constructed.
+        """
         num_samples = self.data.shape[0]
-        return self.c_norm[num_samples-1] + np.log(np.sum(np.exp(self.rs[num_samples-1])))
+        return self.scale_term + np.log(np.sum(np.exp(self.rs[num_samples-1])))
 
     def all_seq_log_sum_exp_reverse(self):
-        """ For testing only """
+        """Returns the same as all_seq_log_sum_exp(.) except that it operates on the reverse path.
+        Primarily for testing.
+        """
         num_samples = self.data.shape[0]
         if num_samples == 1:
             tmp = self.a_trans[self.prev_label] + self.data[0]
@@ -309,27 +354,9 @@ class CRFLayer(LossNN):
         self.s_reverse_first = max_tmp + self.rs_reverse_first
         return self.s_reverse_first
 
-    def loss_func(self, labels):
-        # - correct_sequence + all_sequences
+    def loss_for_seq(self, labels):
+        # - given_label_sequence + all_sequences
         return -self.score_for_seq(labels) + self.all_seq_log_sum_exp()
-
-    def loss_func_for_correct_seq(self):
-        # - correct_sequence + all_sequences
-        return -self.score_for_correct_seq() + self.all_seq_log_sum_exp()
-
-    def get_most_probable_seq(self, class_dtype=np.int):
-        """ Return most probable sequence using the Viterbi algorithm """
-        num_samples = self.data.shape[0]
-        path = np.empty((num_samples, ), dtype=class_dtype)
-        scores = self.a_trans[self.prev_label] + self.data[0]
-        path[0] = np.argmax(scores)
-        score = scores[path[0]]
-
-        for t in range(1, num_samples):
-            scores = self.a_trans[path[t-1]] + self.data[t]
-            path[t] = np.argmax(scores)
-            score += scores[path[t]]
-        return path
 
     def set_labels(self, labels):
         if self.asserts_on:
@@ -341,32 +368,36 @@ class CRFLayer(LossNN):
 
         self.compute_trellis(data)
         self.set_labels(labels)
-        return self.loss_func_for_correct_seq()
+
+        # - correct_label_sequence + all_sequences
+        return -self.score_for_seq(self.labels) + self.all_seq_log_sum_exp()
 
     def backwards_slower(self):
         num_samples = self.data.shape[0]
 
         ds = np.zeros((num_samples, self.dim_k))
         ds[xrange(num_samples), self.labels] = -1
-        self.delta_err = ds + softmax_2d_no_norm(self.rs + self.rs_reverse)
+        self.delta_err = ds + softmax_2d_no_norm(self.rs[0:num_samples] + self.rs_reverse[0:num_samples])
+
+        ps = self.ps
 
         if num_samples > 1:
-            self.ps[0, self.prev_label] += self.s_reverse[0]  # (K, )
+            ps[0, self.prev_label] += self.s_reverse[0]  # (K, )
 
-            # t = num_samples - 1 excluded from the loop on purpose, self.ps[num_samples - 1] should not be modified
+            # t = num_samples - 1 excluded from the loop on purpose, ps[num_samples - 1] should not be modified
             for t in xrange(1, num_samples - 1):
                 # broadcasting: (K, K) + (K, ) -> (K, K) + (1, K) row vector self.s_reverse[t] replicated K times
-                self.ps[t] += self.s_reverse[t]
+                ps[t] += self.s_reverse[t]
 
         # helper for partial derivative
         q = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
 
-        q[0] = np.zeros((self.dim_k, self.dim_k), dtype=self._dtype)
-        # q[0, self.prev_label] = softmax_1d(self.ps[0, self.prev_label])
-        softmax_1d_opt(self.ps[0, self.prev_label], out=q[0, self.prev_label])
+        q[0].fill(0.0)
+        # q[0, self.prev_label] = softmax_1d(ps[0, self.prev_label])
+        softmax_1d_opt(ps[0, self.prev_label], out=q[0, self.prev_label])
 
         for t in xrange(1, num_samples):
-             qtmp = softmax_1d_opt(np.reshape(self.ps[t], (self.dim_k * self.dim_k, )))
+             qtmp = softmax_1d_opt(np.reshape(ps[t], (self.dim_k * self.dim_k, )))
              q[t] = np.reshape(qtmp, (self.dim_k, self.dim_k))
 
         # element-wise addition of the N arrays of size (K, K)
@@ -383,27 +414,29 @@ class CRFLayer(LossNN):
     def backwards(self):
         num_samples = self.data.shape[0]
 
-        self.delta_err = softmax_2d_no_norm(self.rs + self.rs_reverse)
+        self.delta_err = softmax_2d_no_norm(self.rs[0:num_samples] + self.rs_reverse[0:num_samples])
         self.delta_err[xrange(num_samples), self.labels] -= 1
 
-        if num_samples > 1:
-            self.ps[0, self.prev_label] += self.s_reverse[0]  # (K, )
+        ps = self.ps
 
-            # t = num_samples - 1 excluded from the loop on purpose, self.ps[num_samples - 1] should not be modified
+        if num_samples > 1:
+            ps[0, self.prev_label] += self.s_reverse[0]  # (K, )
+
+            # t = num_samples - 1 excluded from the loop on purpose, ps[num_samples - 1] should not be modified
             # add one dimension of size 1 for broadcasting to work
-            self.ps[1:(num_samples - 1)] += np.expand_dims(self.s_reverse[1:(num_samples - 1)], axis=1)
+            ps[1:(num_samples - 1)] += np.expand_dims(self.s_reverse[1:(num_samples - 1)], axis=1)
             # above is equivalent to following but without the loop
             # for t in xrange(1, num_samples - 1):
             #     # broadcasting: (K, K) + (K, ) -> (K, K) + (1, K) row vector self.s_reverse[t] replicated K times
-            #     self.ps[t] += self.s_reverse[t]
+            #     ps[t] += self.s_reverse[t]
 
         # helper for partial derivative
         q = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
 
-        q[0] = np.zeros((self.dim_k, self.dim_k), dtype=self._dtype)
-        softmax_1d_opt(self.ps[0, self.prev_label], out=q[0, self.prev_label])
+        q[0].fill(0.0)
+        softmax_1d_opt(ps[0, self.prev_label], out=q[0, self.prev_label])
 
-        pst = np.reshape(self.ps[1:num_samples], (num_samples-1, self.dim_k * self.dim_k))
+        pst = np.reshape(ps[1:num_samples], (num_samples-1, self.dim_k * self.dim_k))
         q2 = np.reshape(q, (num_samples, self.dim_k * self.dim_k))
         softmax_2d_opt(pst, out=q2[1:num_samples])
 
@@ -411,7 +444,7 @@ class CRFLayer(LossNN):
         np.sum(q, axis=0, out=self.d_a_trans)
 
         self.d_a_trans[self.prev_label, self.labels[0]] -= 1
-        # XXX figure out how to vectorize this loop
+        # because the same indices can be repeated, this loop can't be vectorized using indexing
         for t in xrange(1, num_samples):
             self.d_a_trans[self.labels[t-1], self.labels[t]] -= 1
 
@@ -427,11 +460,11 @@ class CRFLayer(LossNN):
         all_seq_log_sum_exp = self.all_seq_log_sum_exp()
 
         tmp = np.log(np.sum(np.exp(self.ps[0][self.prev_label])))
-        assert np.fabs(1 - tmp / all_seq_log_sum_exp) <= tolerance
+        assert np.isclose(tmp, all_seq_log_sum_exp, rtol=tolerance, atol=tolerance)
 
         for t in range(1, num_samples):
             tmp = np.log(np.sum(np.exp(self.ps[t])))
-            assert np.fabs(1 - tmp / all_seq_log_sum_exp) <= tolerance
+            assert np.isclose(tmp, all_seq_log_sum_exp, rtol=tolerance, atol=tolerance)
 
     def forward_backwards(self, data, labels):
         loss = self.forward(data, labels)
@@ -444,3 +477,34 @@ class CRFLayer(LossNN):
     def get_built_gradient(self):
         return self.d_a_trans.flatten()
 
+    def get_most_probable_seq(self, class_dtype=np.int32):
+        """Decode the highest scoring sequence of tags using the Viterbi decoder.
+        See the recurrence equations in https://en.wikipedia.org/wiki/Viterbi_algorithm for the more general case of
+        HMM. The simplification here is that the visible and hidden states are the same thing.
+        Args:
+            class_dtype: integer type of labels
+        Returns:
+            decoded_sequence: numpy array of shape (N, )
+            decode_sequence_score: score of returned sequence, float
+        """
+        num_samples = self.data.shape[0]
+        # trellis[t, j] is the score of the most probable sequence that ends in label j at time t
+        trellis = np.zeros_like(self.data)  # (T, K)
+        backpointers = np.empty(self.data.shape, dtype=class_dtype)
+        trellis[0] = self.a_trans[self.prev_label] + self.data[0]
+        backpointers[0] = self.prev_label
+
+        for t in xrange(1, num_samples):
+            # (K, 1) + (K, K) -> (K, K)
+            v = np.reshape(trellis[t - 1], (self.dim_k, 1)) + self.a_trans
+            trellis[t] = self.data[t] + np.max(v, 0)
+            backpointers[t] = np.argmax(v, 0)
+
+        viterbi = np.empty(num_samples, dtype=class_dtype)
+        viterbi[num_samples - 1] = np.argmax(trellis[num_samples - 1])
+        for t in xrange(num_samples - 1, 0, -1):
+            viterbi[t-1] = backpointers[t, viterbi[t]]
+
+        viterbi_score = np.max(trellis[-1])
+
+        return viterbi, viterbi_score
