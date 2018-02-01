@@ -141,6 +141,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         dim_d, dim_h = 3, 2
         bptt_steps = 3
         batch_size = 4
+        max_batch_size = batch_size + 1
         max_seq_length = 4
         dtype, tolerance = np.float64, 1e-14
 
@@ -161,9 +162,10 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             data[i] = np.copy(data_t[:, i, :])
 
         rnn_layer = rl.RnnLayer(dim_d, dim_h, max_seq_length, dtype, "tanh", bptt_steps)
-        rnn_batch_layer_1 = rbl.RnnBatchLayer(dim_d, dim_h, max_seq_length, batch_size, dtype, bptt_steps=bptt_steps)
+        rnn_batch_layer_1 = rbl.RnnBatchLayer(dim_d, dim_h, max_seq_length, max_batch_size, dtype,
+                                              bptt_steps=bptt_steps)
         rnn_batch_layer_2 = rbl.RnnBatchLayer(dim_d, dim_h, max_seq_length, 1, dtype, bptt_steps=bptt_steps)
-        rnn_batch_layer_3 = rbl.RnnBatchLayerTime2nd(dim_d, dim_h, max_seq_length, batch_size, dtype,
+        rnn_batch_layer_3 = rbl.RnnBatchLayerTime2nd(dim_d, dim_h, max_seq_length, max_batch_size, dtype,
                                                      bptt_steps=bptt_steps)
 
         model = 0.1 * np.random.standard_normal((rnn_layer.get_num_p(),)).astype(dtype)

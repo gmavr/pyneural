@@ -37,9 +37,8 @@ class BidirRnnLayer(ComponentNN):
             self.rnn_b = gru.GruLayer(self.dim_d, self.dim_h, max_seq_length, dtype=dtype, asserts_on=asserts_on)
         else:
             raise ValueError("Invalid cell type")
-
         super(BidirRnnLayer, self).__init__(self.rnn_f.get_num_p() + self.rnn_b.get_num_p(), dtype)
-        self.delta_error = None
+        self.delta_error = np.empty((max_seq_length, self.dim_d), dtype=dtype)
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -81,9 +80,9 @@ class BidirRnnLayer(ComponentNN):
         # by design always zero reverse sequence previous state
         self.rnn_b.reset_last_hidden()
 
+        # reverse time dimension
         reversed_data = x[::-1]  # reverse view (no mem copy)
         hs_b = self.rnn_b.forward(reversed_data)
-        # reverse rows (corresponding to samples)
         reversed_hs_b = hs_b[::-1]  # reverse view (no mem copy)
 
         hs = np.concatenate((hs_f, reversed_hs_b), axis=1)  # has to copy memory unfortunately
@@ -91,19 +90,20 @@ class BidirRnnLayer(ComponentNN):
         return hs
 
     def backwards(self, delta_err_in):
+        num_samples = self.rnn_f.x.shape[0]
         if self.asserts_on:
-            assert delta_err_in.shape == (self.rnn_f.x.shape[0], 2 * self.dim_h)
+            assert delta_err_in.shape == (num_samples, 2 * self.dim_h)
 
         # first half of matrix columns is projection for forward rnn
         delta_err_f = self.rnn_f.backwards(delta_err_in[:, 0:self.dim_h])
 
-        # reverse rows (corresponding to samples) and take second half of matrix columns
+        # reverse rows (corresponding to time) and take second half of matrix columns
         delta_err_2_reversed = delta_err_in[::-1, self.dim_h:(2*self.dim_h)]
         delta_err_b = self.rnn_b.backwards(delta_err_2_reversed)
         delta_err_b_reversed = delta_err_b[::-1]
 
-        self.delta_error = delta_err_f + delta_err_b_reversed
-        return self.delta_error
+        np.add(delta_err_f, delta_err_b_reversed, out=self.delta_error[0:num_samples])
+        return self.delta_error[0:num_samples]
 
     def _set_model_references_in_place(self):
         params = self._model

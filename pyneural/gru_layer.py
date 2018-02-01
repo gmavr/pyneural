@@ -1,7 +1,7 @@
 import numpy as np
 
 import activation as ac
-from neural_base import ComponentNN, glorot_init
+from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init
 
 
 class GruLayer(ComponentNN):
@@ -27,7 +27,7 @@ class GruLayer(ComponentNN):
         self.act_out = np.empty((self._max_seq_length, 3 * self.dim_h), dtype=self._dtype)
         # convenience view of last part of self.act_out
         self.hs_tilde = self.act_out[:, (2 * self.dim_h):]
-        self.dhs_tilde_dh = np.empty((self._max_seq_length - 1, self.dim_h, self.dim_h), dtype=self._dtype)
+        # self.dhs_tilde_dh = np.empty((self._max_seq_length - 1, self.dim_h, self.dim_h), dtype=self._dtype)
         # self.wb_partial = np.empty((self._max_seq_length, 3 * self.dim_h), dtype=self._dtype)
         self.u_partial = np.empty(3 * self.dim_h, dtype=self._dtype)
         self.r_prod_h = np.empty((self._max_seq_length, self.dim_h), dtype=self._dtype)
@@ -111,10 +111,10 @@ class GruLayer(ComponentNN):
         act_out = self.act_out[0:self._seq_length]
         dim_h = self.dim_h
 
-        w_zr, w_h = self.w[0:(2 * dim_h)], self.w[(2*dim_h):]
         u_zr, u_h = self.u[0:(2 * dim_h)], self.u[(2 * dim_h):]
-        wb_zr = np.dot(self.x, w_zr.T) + self.b[0:(2*dim_h)]
-        wb_h = np.dot(self.x, w_h.T) + self.b[(2*dim_h):]
+        wb = np.dot(self.x, self.w.T) + self.b
+        wb_zr = wb[:, 0:(2 * dim_h)]
+        wb_h = wb[:, (2 * dim_h):]
 
         for t in xrange(self._seq_length):
             # ((2 * H, H) x (H, )) returns (2 * H, )
@@ -162,9 +162,9 @@ class GruLayer(ComponentNN):
             np.dot(self.u[0:(2*dim_h)], self.hs[t], out=u_partial[0:(2*dim_h)])
             np.add(wb_partial[t, 0:(2*dim_h)], u_partial[0:(2*dim_h)], out=act_in[t, 0:(2*dim_h)])
             ac.sigmoid(act_in[t, 0:(2*dim_h)], out=act_out[t, 0:(2*dim_h)])
-            # act_out[t, 0:dim_h] = np.ones((dim_h,), dtype=self._dtype)  # for disabling update gate z_t
+            # act_out[t, 0:dim_h].fill(1.0)  # for disabling update gate z_t
             z_t = act_out[t, 0:dim_h]  # select (1, H) from (T, 3*H)
-            # act_out[t, (1*dim_h):(2*dim_h)] = np.ones((dim_h,), dtype=self._dtype)  # for disabling reset gate r_t
+            # act_out[t, (1*dim_h):(2*dim_h)].fill(1.0)  # for disabling reset gate r_t
             r_t = act_out[t, (1*dim_h):(2*dim_h)]
             np.subtract(1.0, z_t, out=self.one_minus_z[t])
             r_prod_h = self.r_prod_h[t]
@@ -361,6 +361,185 @@ class GruLayer(ComponentNN):
     #
     #     dht += self.diag_1_minus_z[1:seq_length]
     #     dht += z_dhs_tilde_dh
+
+    def __unpack_model_or_grad(self, params):
+        hxh = self.dim_h * self.dim_h
+        hxd = self.dim_h * self.dim_d
+        of1 = 0
+        of2 = 3 * hxd
+        w = np.reshape(params[of1:of2], (3 * self.dim_h, self.dim_d))
+        of1 = of2
+        of2 += 3 * hxh
+        u = np.reshape(params[of1:of2], (3 * self.dim_h, self.dim_h))
+        of1 = of2
+        of2 += 3 * self.dim_h
+        b = np.reshape(params[of1:of2], (3 * self.dim_h, ))
+
+        if self.asserts_on:
+            # verify no memory copy
+            # http://docs.scipy.org/doc/numpy/reference/generated/numpy.reshape.html
+            w.view().shape = (3 * hxd, )
+            u.view().shape = (3 * hxh, )
+            b.view().shape = (3 * self.dim_h, )
+            assert np.shares_memory(w, params)
+
+        return w, u, b
+
+    def _set_model_references_in_place(self):
+        self.w, self.u, self.b = self.__unpack_model_or_grad(self._model)
+
+    def _set_gradient_references_in_place(self):
+        self.dw, self.du, self.db = self.__unpack_model_or_grad(self._grad)
+
+    def get_built_model(self):
+        return np.concatenate((self.w.flatten(), self.u.flatten(), self.b))
+
+    def get_built_gradient(self):
+        return np.concatenate((self.dw.flatten(), self.du.flatten(), self.db))
+
+
+class GruBatchLayer(BatchSequencesComponentNN):
+    """ Gated Recurrent Unit. Batch of sequences.
+
+    Only forward propagation implemented. It is substantially faster per sequence than the non-batched version, even for
+    small batch sizes.
+
+    First dimension is time, the second dimension is batch (sequence index).
+    """
+
+    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True):
+        self.dim_d, self.dim_h = dim_d, dim_h
+        num_p = 3 * self.dim_h * self.dim_d + 3 * self.dim_h * self.dim_h + 3 * self.dim_h
+        super(GruBatchLayer, self).__init__(num_p, max_seq_length, batch_size, dtype)
+        self.asserts_on = asserts_on
+        self._seq_length = 0  # must be 0 before the first iteration
+        self._max_seq_length = max_seq_length
+        self.w = self.u = self.b = None
+        self.dw = self.du = self.db = None
+        # input to activation functions, dimensionality: (L, B, 3*H)
+        self.sigmoid_in = np.empty((self._max_seq_length, self._max_num_sequences, 2 * self.dim_h), dtype=self._dtype)
+        self.tanh_in = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
+        # output from activation functions, dimensionality: (L, B, 3*H)
+        self.sigmoid_out = np.empty((self._max_seq_length, self._max_num_sequences, 2 * self.dim_h), dtype=self._dtype)
+        self.tanh_out = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
+        self.u_zr_partial = np.empty((self._max_num_sequences, 2 * self.dim_h), dtype=self._dtype)
+        self.u_h_partial = np.empty((self._max_num_sequences, self.dim_h), dtype=self._dtype)
+        self.r_prod_h = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
+        # hs[t, i, :] contains the hidden state for the (t-1)-input element, h[1] is first input hidden state
+        # hs[0, i, :] is copied to with self.hs_last[i, :] at the beginning of forward propagation
+        self.hs_large = np.empty((self._max_seq_length + 1, self._max_num_sequences, self.dim_h), dtype=dtype)
+        self.hs = None
+        # hs_last[i, :] contains the last hidden state of the previous mini-batch for the i-th sequence
+        self.hs_last = np.zeros((self._max_num_sequences, self.dim_h), dtype=dtype)
+        self.one_minus_z = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
+        self.buf_b_h = np.empty((self._max_num_sequences, dim_h), dtype=self._dtype)
+        self.reset_last_hidden()  # must initialize initial hidden state to 0 otherwise junk is read at first invocation
+        self.x = None
+
+    def get_display_dict(self):
+        d = self._init_display_dict()
+        d.update({"dim_d": self.dim_d, "dim_h": self.dim_h, "max_seq_length": self._max_seq_length,
+                  "max_num_sequences": self._max_num_sequences})
+        return d
+
+    def set_init_h(self, init_h):
+        """
+        Client must pass here init_h.shape[0] == data.shape[1] in the next invocation of forward_batch().
+        The code does not validate this.
+        """
+        if self.asserts_on:
+            assert init_h.ndim == 2
+            assert init_h.shape[0] <= self._max_num_sequences
+            assert init_h.shape[1] == self.dim_h
+            assert init_h.dtype == self._dtype
+        self.hs_last[0:init_h.shape[0]] = init_h   # makes a copy, which is desirable
+
+    def reset_last_hidden(self):
+        self.hs_last.fill(0.0)
+
+    def forward(self, x, seq_lengths):
+        if self.asserts_on:
+            assert x.ndim == 3
+            assert x.shape[0] <= self._max_seq_length
+            assert x.shape[1] <= self._max_num_sequences
+            assert x.shape[2] == self.dim_d
+            assert seq_lengths.shape[0] == x.shape[1]
+            # assert seq_lengths.dtype == np.int
+            assert np.max(seq_lengths) <= x.shape[0]
+            assert 0 <= np.min(seq_lengths)
+
+        self._curr_num_sequences = x.shape[1]
+        curr_batch_seq_dim_length = self._curr_batch_seq_dim_length = x.shape[0]
+        self.x = x
+        self._seq_lengths = seq_lengths
+
+        self._curr_min_seq_length = np.amin(self._seq_lengths)
+        self._curr_max_seq_length = np.amax(self._seq_lengths)
+
+        if self.asserts_on:
+            self.validate_zero_padding(x)
+
+        # "trim" self.hs_large to proper size (no copy)
+        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:self._curr_num_sequences, :]
+
+        # restore the last hidden state of the previous batch (or what was set to via set_init_h())
+        self.hs[0] = self.hs_last[0:self._curr_num_sequences]  # makes a copy, which is desirable
+
+        # non-batch was: (T, D) x (D, 3*H) = (T, 3*H)
+        # now with batch: (T, B, D) x (D, 3*H) = (T, B, 3*H)
+        # broadcasting: (T, B, 3*H) + (3*H, ) = (T, B, 3*H) + (1, 1, 3*H) -> (T, B, 3*H)
+        wb_partial = np.dot(self.x, self.w.T) + self.b
+
+        # "trim" to proper sizes (no copies)
+        sigmoid_in = self.sigmoid_in[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
+        sigmoid_out = self.sigmoid_out[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]  # (T, B, 2*H)
+        tanh_in = self.tanh_in[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
+        tanh_out = self.tanh_out[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
+        u_zr_partial = self.u_zr_partial[0:self._curr_num_sequences]  # (B, 2*H)
+        u_h_partial = self.u_h_partial[0:self._curr_num_sequences]  # (B, H)
+        one_minus_z = self.one_minus_z[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
+        buf_b_h = self.buf_b_h[0:self._curr_num_sequences]
+        dim_h = self.dim_h
+
+        # The hidden state passes through the non-linearity, therefore it cannot be optimized
+        # as summations over samples. A loop is necessary.
+        for t in xrange(self._curr_max_seq_length):
+            # non-batch was  u_zr_partial: ((2*H, H) x (H, )) == (2*H, )
+            # now with batch u_zr_partial: ((B, H) x (2*H, H)^T) == (B, 2*H)
+            np.dot(self.hs[t], self.u[0:(2*dim_h)].T, out=u_zr_partial)  # (B, 2*H)
+            np.add(wb_partial[t, :, 0:(2*dim_h)], u_zr_partial, out=sigmoid_in[t])
+            ac.sigmoid(sigmoid_in[t], out=sigmoid_out[t])  # (B, 2*H)
+            # sigmoid_out[t, :, 0:dim_h].fill(1.0)  # for disabling update gate z_t
+            z_t = sigmoid_out[t, :, 0:dim_h]  # select (1, B, H) from (T, B, 2*H) collapses to (B, H)
+            # sigmoid_out[t, :, (1*dim_h):(2*dim_h)].fill(1.0)  # for disabling reset gate r_t
+            r_t = sigmoid_out[t, :, (1*dim_h):(2*dim_h)]  # (B, H)  OK
+            np.subtract(1.0, z_t, out=one_minus_z[t])
+            r_prod_h = self.r_prod_h[t, 0:self._curr_num_sequences]  # (B, H)
+            np.multiply(r_t, self.hs[t], out=r_prod_h)  # (B, H)
+            # non-batch was  u_h_partial: (H1, H2) x (H2, ) == (H1, )
+            # now with batch u_h_partial: ((B, H2) x (H1, H2)^T) == (B, H1)
+            np.dot(r_prod_h, self.u[(2*dim_h):].T, out=u_h_partial)  # (B, H)
+            np.add(wb_partial[t, :, (2*dim_h):], u_h_partial, out=tanh_in[t])
+            np.tanh(tanh_in[t], out=tanh_out[t])  # (1, B, H)
+            np.multiply(z_t, tanh_out[t], out=self.hs[t + 1])
+            np.multiply(self.hs[t], one_minus_z[t], out=buf_b_h)
+            self.hs[t + 1] += buf_b_h
+
+        for s in xrange(self._curr_num_sequences):
+            seq_length = seq_lengths[s]
+            # remember each sequence's last hidden state
+            self.hs_last[s] = self.hs[seq_length, s]
+            # The hidden state after each sequence's last was assigned junk values.
+            # Zero-out hidden state after each sequence's last.
+            # Technically this is not necessary because the upper layer ignores these values anyway, but it may be
+            # useful for checking invariants and correctness
+            if seq_length < curr_batch_seq_dim_length:
+                self.hs[(seq_length+1):(curr_batch_seq_dim_length+1), s] = 0.0
+
+        return self.hs[1:(curr_batch_seq_dim_length + 1)]  # (T, B, H)
+
+    def backwards(self, delta_upper):
+        raise ValueError("Not implemented")
 
     def __unpack_model_or_grad(self, params):
         hxh = self.dim_h * self.dim_h

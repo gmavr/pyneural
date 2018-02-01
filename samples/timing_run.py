@@ -75,7 +75,8 @@ def softmax_layer_time():
         delta_err_batch[(j * max_seq_length):((j + 1) * max_seq_length), :] = ce_batch.backwards()
         grad_batched[j] = np.copy(ce_batch.get_gradient())
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_max_seq_blocks, batch_size, time_elapsed))
 
     start_time = time.time()
     for i in range(batch_size):
@@ -86,7 +87,8 @@ def softmax_layer_time():
             delta_err[(j * max_seq_length):((j + 1) * max_seq_length), i] = ce.backwards()
             grad_accum[j] += ce.get_gradient()
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d x %d invocations: %.4g sec" % (batch_size, num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
+          % (batch_size, num_max_seq_blocks, time_elapsed))
 
     rtol, atol = 1e-15, 1e-15
     assert(np.allclose(loss_batched, loss, rtol=rtol, atol=atol))
@@ -175,12 +177,13 @@ def embedding_batched_time():
 def rnn_time():
     """
     Measures times for batched versions against loop over the non-batched versions.
+    For forward pass only, it also compares batched invocation with time at 0-th and 1-st dimension (former is faster.)
     Note: Batches are full. Effective performance of batched versions will be lower with sequences of smaller lengths.
     """
     dim_d, dim_h = 25, 50
-    bptt_steps = 10
     batch_size = 20
     max_seq_length = 20
+    bptt_steps = max_seq_length
     num_max_seq_blocks = 50
     dtype = np.float64
 
@@ -207,7 +210,8 @@ def rnn_time():
         for j in range(num_max_seq_blocks):
             rnn_layer.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)])
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d x %d invocations: %.4g sec" % (batch_size, num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
+          % (batch_size, num_max_seq_blocks, time_elapsed))
 
     seq_lengths = np.empty((batch_size, ), dtype=np.int)
     seq_lengths.fill(max_seq_length)
@@ -218,14 +222,16 @@ def rnn_time():
     for j in range(num_max_seq_blocks):
         rnn_batch_layer_t1.forward(data_t[:, (j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_max_seq_blocks, batch_size, time_elapsed))
 
     start_time = time.time()
     rnn_batch_layer.set_init_h(hs_init)
     for j in range(num_max_seq_blocks):
         rnn_batch_layer.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_max_seq_blocks, batch_size, time_elapsed))
 
     # forward-backward
 
@@ -242,7 +248,8 @@ def rnn_time():
             rnn_layer.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)])
             rnn_layer.backwards(delta_upper1[i, (j * max_seq_length):((j + 1) * max_seq_length)])
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d x %d invocations: %.4g sec" % (batch_size, num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
+          % (batch_size, num_max_seq_blocks, time_elapsed))
 
     start_time = time.time()
     rnn_batch_layer.set_init_h(hs_init)
@@ -250,7 +257,8 @@ def rnn_time():
         rnn_batch_layer.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
         rnn_batch_layer.backwards(delta_upper2[(j * max_seq_length):((j + 1) * max_seq_length)])
     time_elapsed = (time.time() - start_time)
-    print("total time elapsed for %d batched invocations: %.4g sec" % (num_max_seq_blocks, time_elapsed))
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_max_seq_blocks, batch_size, time_elapsed))
 
     # batch size, backprop speedup |  (dim_d, dim_h = 25, 50  max_seq_length = 20 num_max_seq_blocks = 50)
     # 2 1.1 | 5, 1.8 | 10, 2.5 | 20, 3.5 | 50, 4.5 | 100, 4.8 | 200 5.3
@@ -299,9 +307,9 @@ def gru_forward_time():
         times2.append(time.time() - start_time)
 
     t1 = sum(times1)
-    print("time elapsed: %.4g sec" % t1)
+    print("time elapsed (opt): %.4g sec" % t1)
     t2 = sum(times2)
-    print("time elapsed: %.4g sec" % t2)
+    print("time elapsed (dbg): %.4g sec" % t2)
 
     assert(np.allclose(y1, y2, rtol=1e-14, atol=1e-14))
 
