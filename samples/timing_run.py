@@ -23,6 +23,8 @@ def softmax_layer_time():
     than the batch size.
     Also verifies that loss and derivatives are the same.
     """
+    print("Comparing batched sequence vs loop over non-batched sequences for Softmax Layer")
+
     dim_d, dim_k = 25, 50
     batch_size = 25  # number of sequences
     max_seq_length = 20
@@ -61,8 +63,6 @@ def softmax_layer_time():
     delta_err = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
     delta_err_batch = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
 
-    print("Starting comparison of batched sequence vs loop over non-batched sequences")
-
     seq_lengths = np.empty((batch_size,), dtype=np.int)
     seq_lengths.fill(max_seq_length)
 
@@ -94,31 +94,6 @@ def softmax_layer_time():
     assert(np.allclose(loss_batched, loss, rtol=rtol, atol=atol))
     assert(np.allclose(grad_accum, grad_batched, rtol=1e-13, atol=1e-13))
     assert(np.allclose(delta_err, delta_err_batch, rtol=rtol, atol=atol))
-
-
-def embedding_time():
-    num_samples = 1000
-    dim_k, dim_d = 75000, 200
-    dtype = np.float32
-
-    em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
-
-    em_obj.init_parameters_storage()
-
-    np.random.seed(seed=47)
-    em_obj.model_normal_init(1.0)
-
-    x = np.random.randint(0, dim_k, num_samples)
-    delta_err = 0.05 * np.random.standard_normal((num_samples, dim_d)).astype(dtype)
-
-    start_time = time.time()
-
-    for i in range(10):
-        em_obj.forward(x)
-        em_obj.backwards(delta_err)
-
-    time_elapsed = (time.time() - start_time)
-    print("time elapsed: %.4g sec" % time_elapsed)
 
 
 def create_random_data_em_batch(em_object, max_seq_length, batch_size):
@@ -153,22 +128,47 @@ def create_random_data_em_batch(em_object, max_seq_length, batch_size):
     return x, delta_err, seq_lengths
 
 
-def embedding_batched_time():
-    batch_size, max_seq_length = 200, 50
-    dim_k, dim_d = 5000, 50
+def embedding_time():
+    print("Comparing batched sequence vs loop over non-batched sequences for Embedding Layer")
+
+    batch_size, max_seq_length = 100, 100
+    dim_k, dim_d = 75000, 100
     dtype = np.float32
 
-    em_obj_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype)
-    em_obj_batch.init_parameters_storage()
+    np.random.seed(seed=47)
+    model = 0.1 * np.random.standard_normal(dim_k *dim_d).astype(dtype)
 
-    em_obj_batch.model_normal_init(0.1)
+    em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
+    em_obj.init_parameters_storage(model=model)
+
+    em_obj_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype)
+    em_obj_batch.init_parameters_storage(model=model)
+
+    # batches are constructed close to full
+    # x: (T, B) np.int  delta_err: (T, B, D) seq_lengths: (B, ) np.int
     x, delta_err, seq_lengths = create_random_data_em_batch(em_obj_batch, max_seq_length, batch_size)
 
-    start_time = time.time()
+    x_t = np.transpose(x)
+    delta_err_t = np.transpose(delta_err)
 
-    for i in range(10):
+    num_iters = 5
+
+    start_time = time.time()
+    for k in xrange(num_iters):
+        for i in xrange(batch_size):
+            em_obj.forward(x_t[i, 0:seq_lengths[i]])
+            em_obj.backwards(delta_err_t[i, 0:seq_lengths[i]])
+    time_elapsed = (time.time() - start_time)
+    print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
+          % (num_iters, batch_size, time_elapsed))
+
+    start_time = time.time()
+    for k in xrange(num_iters):
         em_obj_batch.forward(x, seq_lengths)
         em_obj_batch.backwards(delta_err)
+    time_elapsed = (time.time() - start_time)
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_iters, batch_size, time_elapsed))
 
     time_elapsed = (time.time() - start_time)
     print("time elapsed: %.4g sec" % time_elapsed)
@@ -180,6 +180,8 @@ def rnn_time():
     For forward pass only, it also compares batched invocation with time at 0-th and 1-st dimension (former is faster.)
     Note: Batches are full. Effective performance of batched versions will be lower with sequences of smaller lengths.
     """
+    print("Comparing batched sequence vs loop over non-batched sequences for Standard RNN Layer")
+
     dim_d, dim_h = 25, 50
     batch_size = 20
     max_seq_length = 20
@@ -272,16 +274,17 @@ def create_gru_random_data(dim_x, dim_y, dtype, num_params, num_samples):
     return x, y, model, h_init
 
 
-def gru_forward_time():
-    num_samples = 100
-    dim_d, dim_h, max_seq_length = 500, 200, num_samples
+def gru_fwd_versions_time():
+    print("Comparing GRU forward versions")
+
+    dim_d, dim_h, max_seq_length = 500, 200, 100
     dtype = np.float64
 
     gru1 = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
     gru2 = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
 
     np.random.seed(seed=47)
-    x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, gru1.get_num_p(), num_samples)
+    x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, gru1.get_num_p(), max_seq_length)
 
     gru1.init_parameters_storage(model=model)
     gru2.init_parameters_storage(model=np.copy(model))
@@ -314,9 +317,86 @@ def gru_forward_time():
     assert(np.allclose(y1, y2, rtol=1e-14, atol=1e-14))
 
 
+def gru_time():
+    print("Comparing batched sequence vs loop over non-batched sequences for GRU Layer")
+
+    dim_d, dim_h = 25, 50
+    batch_size = 20
+    max_seq_length = 20
+    num_max_seq_blocks = 50
+    dtype = np.float64
+
+    rnn_layer = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype, asserts_on=True)
+    rnn_batch_layer = gru.GruBatchLayer(dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True)
+
+    np.random.seed(seed=47)
+    x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, rnn_layer.get_num_p(), num_max_seq_blocks)
+
+    rnn_layer.init_parameters_storage(model=model)
+    rnn_batch_layer.init_parameters_storage(model=np.copy(model))
+
+    model = 0.1 * np.random.standard_normal((rnn_layer.get_num_p(),)).astype(dtype)
+    hs_init = 0.01 * np.random.standard_normal((batch_size, dim_h)).astype(dtype)
+
+    rnn_layer.init_parameters_storage(model)
+    rnn_batch_layer.init_parameters_storage(model)
+
+    data_t = 0.5 * np.random.standard_normal((batch_size, num_max_seq_blocks * max_seq_length, dim_d)).astype(dtype)
+    data = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
+    for i in range(num_max_seq_blocks * max_seq_length):
+        data[i] = np.copy(data_t[:, i, :])
+
+    start_time = time.time()
+    for i in range(batch_size):
+        rnn_layer.set_init_h(hs_init[i])
+        for j in range(num_max_seq_blocks):
+            rnn_layer.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)])
+    time_elapsed = (time.time() - start_time)
+    print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
+          % (batch_size, num_max_seq_blocks, time_elapsed))
+
+    seq_lengths = np.empty((batch_size, ), dtype=np.int)
+    seq_lengths.fill(max_seq_length)
+
+    start_time = time.time()
+    rnn_batch_layer.set_init_h(hs_init)
+    for j in range(num_max_seq_blocks):
+        rnn_batch_layer.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
+    time_elapsed = (time.time() - start_time)
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_max_seq_blocks, batch_size, time_elapsed))
+
+    # forward-backward
+
+    delta_upper1 = 0.1 * np.random.standard_normal((batch_size, num_max_seq_blocks * max_seq_length, dim_h))\
+        .astype(dtype)
+    delta_upper2 = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_h), dtype=dtype)
+    for i in range(num_max_seq_blocks * max_seq_length):
+        delta_upper2[i] = np.copy(delta_upper1[:, i, :])
+
+    start_time = time.time()
+    for i in range(batch_size):
+        rnn_layer.set_init_h(hs_init[i])
+        for j in range(num_max_seq_blocks):
+            rnn_layer.forward(data_t[i, (j * max_seq_length):((j + 1) * max_seq_length)])
+            rnn_layer.backwards(delta_upper1[i, (j * max_seq_length):((j + 1) * max_seq_length)])
+    time_elapsed = (time.time() - start_time)
+    print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
+          % (batch_size, num_max_seq_blocks, time_elapsed))
+
+    start_time = time.time()
+    rnn_batch_layer.set_init_h(hs_init)
+    for j in range(num_max_seq_blocks):
+        rnn_batch_layer.forward(data[(j * max_seq_length):((j + 1) * max_seq_length)], seq_lengths)
+        rnn_batch_layer.backwards(delta_upper2[(j * max_seq_length):((j + 1) * max_seq_length)])
+    time_elapsed = (time.time() - start_time)
+    print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
+          (num_max_seq_blocks, batch_size, time_elapsed))
+
+
 if __name__ == "__main__":
     softmax_layer_time()
     embedding_time()
-    embedding_batched_time()
     rnn_time()
-    gru_forward_time()
+    gru_time()
+    gru_fwd_versions_time()

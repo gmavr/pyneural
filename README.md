@@ -26,7 +26,7 @@ Significant variations in execution speed were observed across  Ubuntu installat
 
 ## Testing and Correctness
 
-There is an extensive test suite using the python `unittest` framework. The full test suite can be invoked from the command line by issuing `python -m unittest discover -p "*_test.py"` from the top-level directory of the repository.
+There is an extensive test suite using the python `unittest` framework. The full test suite can be invoked from the command line by issuing `python -m unittest discover -s pyneural/test -p "*_test.py"` from the top-level directory of the repository.
 
 Anything having a gradient (all discrete layers and activation functions), as well as some composite networks, has a gradient check run as part of the test suite. General support for gradient checks is inside `gradient_check.py`. The directory `samples` contains several multi-layer networks with code that trains them and shows that the loss decreases during training.
 

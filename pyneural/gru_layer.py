@@ -21,12 +21,12 @@ class GruLayer(ComponentNN):
         self._max_seq_length = max_seq_length
         self.w = self.u = self.b = None
         self.dw = self.du = self.db = None
-        # input to activation functions, dimensionality: (L, 3*H)
-        self.act_in = np.empty((self._max_seq_length, 3 * self.dim_h), dtype=self._dtype)
-        # output from activation functions, dimensionality: (L, 3*H)
-        self.act_out = np.empty((self._max_seq_length, 3 * self.dim_h), dtype=self._dtype)
-        # convenience view of last part of self.act_out
-        self.hs_tilde = self.act_out[:, (2 * self.dim_h):]
+        # inputs to activation functions, dimensionality: (L, 3*H)
+        self.sigmoid_in = np.empty((self._max_seq_length, 2 * self.dim_h), dtype=self._dtype)
+        self.tanh_in = np.empty((self._max_seq_length, self.dim_h), dtype=self._dtype)
+        # outputs from activation functions, dimensionality: (L, 3*H)
+        self.sigmoid_out = np.empty((self._max_seq_length, 2 * self.dim_h), dtype=self._dtype)
+        self.hs_tilde = np.empty((self._max_seq_length, self.dim_h), dtype=self._dtype)
         # self.dhs_tilde_dh = np.empty((self._max_seq_length - 1, self.dim_h, self.dim_h), dtype=self._dtype)
         # self.wb_partial = np.empty((self._max_seq_length, 3 * self.dim_h), dtype=self._dtype)
         self.u_partial = np.empty(3 * self.dim_h, dtype=self._dtype)
@@ -34,7 +34,8 @@ class GruLayer(ComponentNN):
         # hs[t, :] contains the hidden state for the (t-1)-input element, h[1] is first input hidden state
         # hs[0, :] contains the last hidden state of the previous sequence
         self.hs = np.empty((self._max_seq_length + 1, self.dim_h), dtype=dtype)
-        self.ac_grad = np.empty((self._max_seq_length, 3 * self.dim_h), dtype=self._dtype)
+        self.sigmoid_grad = np.empty((self._max_seq_length, 2 * self.dim_h), dtype=self._dtype)
+        self.tanh_grad = np.empty((self._max_seq_length, self.dim_h), dtype=self._dtype)
         self.dh = np.empty((self._max_seq_length, self.dim_h), dtype=self._dtype)
         self.dh2 = np.empty((self._max_seq_length, 3 * dim_h), dtype=self._dtype)
         self.dh_next = np.empty(self.dim_h, dtype=self._dtype)  # (H, )
@@ -107,8 +108,9 @@ class GruLayer(ComponentNN):
         self._seq_length = x.shape[0]
         self.x = x
 
-        act_in = self.act_in[0:self._seq_length]
-        act_out = self.act_out[0:self._seq_length]
+        sigmoid_in = self.sigmoid_in[0:self._seq_length]
+        tanh_in = self.tanh_in[0:self._seq_length]
+        sigmoid_out = self.sigmoid_out[0:self._seq_length]
         dim_h = self.dim_h
 
         u_zr, u_h = self.u[0:(2 * dim_h)], self.u[(2 * dim_h):]
@@ -118,14 +120,14 @@ class GruLayer(ComponentNN):
 
         for t in xrange(self._seq_length):
             # ((2 * H, H) x (H, )) returns (2 * H, )
-            act_in[t, 0:(2 * dim_h)] = wb_zr[t] + np.dot(u_zr, self.hs[t])
-            act_out[t, 0:(2 * dim_h)] = ac.sigmoid(act_in[t, 0:(2 * dim_h)])
-            z_t = act_out[t, 0:dim_h]
-            r_t = act_out[t, (1*dim_h):(2*dim_h)]
+            sigmoid_in[t] = wb_zr[t] + np.dot(u_zr, self.hs[t])
+            sigmoid_out[t] = ac.sigmoid(sigmoid_in[t])
+            z_t = sigmoid_out[t, 0:dim_h]
+            r_t = sigmoid_out[t, (1*dim_h):]
             self.one_minus_z[t] = np.subtract(1.0, z_t)
             self.r_prod_h[t] = r_t * self.hs[t]
-            act_in[t, (2 * dim_h):] = wb_h[t] + np.dot(u_h, self.r_prod_h[t])
-            act_out[t, (2 * dim_h):] = np.tanh(act_in[t, (2 * dim_h):])
+            tanh_in[t] = wb_h[t] + np.dot(u_h, self.r_prod_h[t])
+            self.hs_tilde[t] = np.tanh(tanh_in[t])
             self.hs[t + 1] = self.one_minus_z[t] * self.hs[t] + z_t * self.hs_tilde[t]
 
         self.y = self.hs[1:(self._seq_length+1)]
@@ -143,8 +145,9 @@ class GruLayer(ComponentNN):
         self._seq_length = x.shape[0]
         self.x = x
 
-        act_in = self.act_in[0:self._seq_length]
-        act_out = self.act_out[0:self._seq_length]
+        sigmoid_in = self.sigmoid_in[0:self._seq_length]
+        tanh_in = self.tanh_in[0:self._seq_length]
+        sigmoid_out = self.sigmoid_out[0:self._seq_length]
         dim_h = self.dim_h
 
         # pre-allocating wb_partial once and re-using it in each forward() invocation makes no measurable difference in
@@ -160,67 +163,25 @@ class GruLayer(ComponentNN):
         for t in xrange(self._seq_length):
             # ((2 * H, H) x (H, )) returns (2 * H, )
             np.dot(self.u[0:(2*dim_h)], self.hs[t], out=u_partial[0:(2*dim_h)])
-            np.add(wb_partial[t, 0:(2*dim_h)], u_partial[0:(2*dim_h)], out=act_in[t, 0:(2*dim_h)])
-            ac.sigmoid(act_in[t, 0:(2*dim_h)], out=act_out[t, 0:(2*dim_h)])
-            # act_out[t, 0:dim_h].fill(1.0)  # for disabling update gate z_t
-            z_t = act_out[t, 0:dim_h]  # select (1, H) from (T, 3*H)
-            # act_out[t, (1*dim_h):(2*dim_h)].fill(1.0)  # for disabling reset gate r_t
-            r_t = act_out[t, (1*dim_h):(2*dim_h)]
+            np.add(wb_partial[t, 0:(2*dim_h)], u_partial[0:(2*dim_h)], out=sigmoid_in[t])
+            ac.sigmoid(sigmoid_in[t], out=sigmoid_out[t])
+            # sigmoid_out[t, 0:dim_h].fill(1.0)  # for disabling update gate z_t
+            z_t = sigmoid_out[t, 0:dim_h]  # select (1, H) from (T, 3*H)
+            # sigmoid_out[t, (1*dim_h):].fill(1.0)  # for disabling reset gate r_t
+            r_t = sigmoid_out[t, (1*dim_h):]
             np.subtract(1.0, z_t, out=self.one_minus_z[t])
             r_prod_h = self.r_prod_h[t]
             np.multiply(r_t, self.hs[t], out=r_prod_h)
             # ((H, H) x (H, )) returns (H, )
             np.dot(self.u[(2*dim_h):], r_prod_h, out=u_partial[(2 * dim_h):])
-            np.add(wb_partial[t, (2*dim_h):], u_partial[(2*dim_h):], out=act_in[t, (2 * dim_h):])
-            np.tanh(act_in[t, (2*dim_h):], out=self.hs_tilde[t])
+            np.add(wb_partial[t, (2*dim_h):], u_partial[(2*dim_h):], out=tanh_in[t])
+            np.tanh(tanh_in[t], out=self.hs_tilde[t])
             np.multiply(z_t, self.hs_tilde[t], out=self.hs[t + 1])
             np.multiply(self.hs[t], self.one_minus_z[t], out=buf_h)
             self.hs[t + 1] += buf_h
 
         self.y = self.hs[1:(self._seq_length+1)]
         return self.y
-
-    def vect_element_wise_matrix(self, n_vec, mat, out):
-        """
-        For each of N items: Repeat column vector vec Z times and compute element-wise product of vec and mat
-        (both have shape (D, Z))
-
-        Args:
-            n_vec: N vectors of size D (to be repeated as column vectors Z times)
-            mat: matrix of shape (D, Z)
-            out: array of shape (N, D, Z) to hold the results
-        """
-        if self.asserts_on:
-            assert n_vec.ndim == 2 and mat.ndim == 2
-            assert n_vec.shape[1] == mat.shape[0]
-        n, dim = n_vec.shape
-        # from (N, D) to (N, D, 1), broadcasting will "repeat column vector" Z times
-        n_vec = np.reshape(n_vec, (n, dim, 1))
-        # broadcasting: (N, D, 1) hadamard (D, Z) -> (N, D, Z) hadamard (N, D, Z)
-        np.multiply(n_vec, mat, out=out)
-
-    def vect_element_wise_matrix_plus_diag(self, n_vec, mat, n_rvec, out):
-        """
-        For each of N items: Repeat column vector n_vec[t] D2 times, compute element-wise product of vec and mat
-        (both have shape (D1, D2), D1=D2), add n_rvec[t] vector to its diagonal
-
-        Args:
-            n_vec: N vectors of size D1 (to be repeated as column vectors D2 times)
-            mat: matrix of shape (D1, D2)
-            n_rvec: N vectors of size D to be added to the diagonal
-            out: array of shape (N, D1, D2) to hold the results
-        """
-        if self.asserts_on:
-            assert n_vec.ndim == 2 and mat.ndim == 2
-            assert n_vec.shape[1] == mat.shape[0] and mat.shape[0] == mat.shape[1]
-            assert n_rvec.shape == n_vec.shape
-        n, dim = n_vec.shape
-        for i in xrange(n):
-            # by taking transposes first, following avoids re-shape of n_vec[i] from (D1, ) to (D1, 1), it is faster
-            # broadcasting: (D2, D1) hadamard (D1, ) -> (D2, D1) hadamard (D2, D1) = (D2, D1)
-            np.multiply(mat.T, n_vec[i], out=out[i].T)
-            # efficient way to add to the diagonal
-            out[i].flat[0::dim + 1] += n_rvec[i]
 
     def backwards(self, delta_upper):
         if self.asserts_on:
@@ -229,28 +190,32 @@ class GruLayer(ComponentNN):
         seq_length = self._seq_length
         dim_h = self.dim_h
 
-        ac.sigmoid_grad(self.act_out[0:seq_length, 0:(2 * dim_h)],
-                        out=self.ac_grad[0:seq_length, 0:(2 * dim_h)])  # (T, 2 * H)
-        ac.tanh_grad(self.act_out[0:seq_length, (2 * dim_h):],
-                     out=self.ac_grad[0:seq_length, (2 * dim_h):])  # (T, H)
+        # "trim" to proper sizes (no copies)
+        sigmoid_out = self.sigmoid_out[0:seq_length]  # (T, 2*H)
+        sigmoid_grad = self.sigmoid_grad[0:seq_length]
+        hs_tilde = self.hs_tilde[0:seq_length]
+        tanh_grad = self.tanh_grad[0:seq_length]
 
-        np.subtract(self.hs_tilde[0:seq_length], self.hs[0:seq_length], out=self.h_tilde_minus_h[0:seq_length])
+        ac.sigmoid_grad(sigmoid_out, out=sigmoid_grad)  # (T, 2 * H)
+        ac.tanh_grad(hs_tilde, out=tanh_grad)  # (T, H)
+
+        h_tilde_minus_h = self.h_tilde_minus_h[0:seq_length]
+        np.subtract(hs_tilde, self.hs[0:seq_length], out=h_tilde_minus_h)
 
         z_prod_grad = self.z_prod_grad[0:seq_length]  # (T, H)
-        np.multiply(self.ac_grad[0:seq_length, (2 * dim_h):], self.act_out[0:seq_length, 0:dim_h], out=z_prod_grad)
+        np.multiply(tanh_grad, sigmoid_out[:, 0:dim_h], out=z_prod_grad)
 
         h_minus_h_prod_grad = self.h_minus_h_prod_grad[0:seq_length]  # (T, H)
-        np.multiply(self.ac_grad[0:seq_length, 0:dim_h], self.h_tilde_minus_h[0:seq_length], out=h_minus_h_prod_grad)
+        np.multiply(sigmoid_grad[:, 0:dim_h], h_tilde_minus_h, out=h_minus_h_prod_grad)
 
         h_prod_grad = self.h_prod_grad[0:seq_length]  # (T, H)
-        np.multiply(self.ac_grad[0:seq_length, dim_h:(2 * dim_h)], self.hs[0:seq_length], out=h_prod_grad)
+        np.multiply(sigmoid_grad[:, dim_h:(2 * dim_h)], self.hs[0:seq_length], out=h_prod_grad)
 
-        rhr = self.rhr[0:(seq_length-1)]
-
-        self.vect_element_wise_matrix_plus_diag(self.h_prod_grad[1:seq_length], self.u[dim_h:(2 * dim_h)],
-                                                self.act_out[1:seq_length, (1 * dim_h):(2 * dim_h)], rhr)
-
-        self.__back_propagation_loop(delta_upper, 0, seq_length)
+        if seq_length > 0:
+            rhr = self.rhr[0:(seq_length-1)]
+            self.vect_element_wise_matrix_plus_diag(self.h_prod_grad[1:seq_length], self.u[dim_h:(2 * dim_h)],
+                                                    sigmoid_out[1:seq_length, (1 * dim_h):(2 * dim_h)], rhr)
+            self.__back_propagation_loop(delta_upper, 0, seq_length)
 
         u_h = self.u[(2*dim_h):, ]
 
@@ -290,9 +255,9 @@ class GruLayer(ComponentNN):
 
         np.dot(dh2.T, self.x, out=self.dw)  # (3*H, T) x (T, D)
 
-        np.dot(dh2[:, 0:(2*dim_h)].T, self.hs[0:seq_length], out=self.du[:(2*dim_h)])  # (2*H, T) x (T, D)
+        np.dot(dh2[:, 0:(2*dim_h)].T, self.hs[0:seq_length], out=self.du[:(2*dim_h)])  # (2*H, T) x (T, H)
         r_dot_h = self.r_prod_h[0:seq_length]
-        np.dot(dh2[:, (2*dim_h):].T, r_dot_h, out=self.du[(2*dim_h):])  # (H, T) x (T, D)
+        np.dot(dh2[:, (2*dim_h):].T, r_dot_h, out=self.du[(2*dim_h):])  # (H, T) x (T, H)
 
         # (T, 3 * H) x (3 * H, D) = (T, D)
         delta_err = self.delta_err_large[0:seq_length]
@@ -300,12 +265,56 @@ class GruLayer(ComponentNN):
 
         return delta_err
 
+    def vect_element_wise_matrix(self, n_vec, mat, out):
+        """
+        For each t of N items: Construct matrix M of shape (H1, H2) by repeating vector n_vec[t] H2 times as H2 column
+        vectors. Compute element-wise product of M and mat (both are of shape (H1, H2), H1=H2). Add the n_rvec[t]
+        vector to the diagonal of the result.
+
+        Args:
+            n_vec: N vectors of size D (to be repeated as column vectors Z times)
+            mat: matrix of shape (D, Z)
+            out: array of shape (N, D, Z) to hold the results
+        """
+        if self.asserts_on:
+            assert n_vec.ndim == 2 and mat.ndim == 2
+            assert n_vec.shape[1] == mat.shape[0]
+        n, dim = n_vec.shape
+        # from (N, D) to (N, D, 1), broadcasting will "repeat column vector" Z times
+        n_vec = np.reshape(n_vec, (n, dim, 1))
+        # broadcasting: (N, D, 1) hadamard (D, Z) -> (N, D, Z) hadamard (N, D, Z)
+        np.multiply(n_vec, mat, out=out)
+
+    def vect_element_wise_matrix_plus_diag(self, n_vec, mat, n_rvec, out):
+        """
+        For each of N items: Repeat column vector n_vec[t] H2 times, compute element-wise product of vec and mat
+        (both have shape (H1, H2), H1=H2), add n_rvec[t] vector to its diagonal
+
+        Args:
+            n_vec: N vectors of size H1 (to be repeated as column vectors H2 times)
+            mat: matrix of shape (H1, H2)
+            n_rvec: N vectors of size D to be added to the diagonal
+            out: array of shape (N, H1, H2) to hold the results
+        """
+        if self.asserts_on:
+            assert n_vec.ndim == 2
+            n, h = n_vec.shape
+            assert mat.shape == (h, h)
+            assert n_rvec.shape == n_vec.shape
+            assert out.shape == (n, h, h)
+        n, h = n_vec.shape
+        # (N, H1, 1) hadamard (H1, H2) -> (N, H1, H2) hadamard (N, H1, H2).
+        c = np.expand_dims(n_vec, axis=2)
+        np.multiply(c, mat, out=out)
+        for i in xrange(n):
+            out[i].flat[0::(h + 1)] += n_rvec[i]  # the most efficient way to add to a matrix's diagonal
+
     def __back_propagation_loop(self, delta_upper, low_t, high_t):
         """
         Reverse iteration starting from high_t - 1, finishing at low_t, both inclusive.
         Populates self.dh[low_t:high_t]
         Args:
-            delta_upper: error signal from upper layer
+            delta_upper: error signal from upper layer, shape (L, H)
             low_t: low index, inclusive
             high_t: high index, exclusive
         """
@@ -320,6 +329,8 @@ class GruLayer(ComponentNN):
         u_h = self.u[(2 * dim_h):]
         dh_next = self.dh_next
         self.dh[high_t - 1] = delta_upper[high_t - 1]
+        # Moving multiplication with self.rhr here would produce (H, H1) x (T-1, H1, H2) = (H, T-1, H2), but we'd like
+        # (T-1, H, H2) for fast access.
         for t in xrange(high_t - 2, low_t - 1, -1):
             dh = self.dh[t + 1]
             np.multiply(dh, self.h_minus_h_prod_grad[t + 1], out=buf_h)
@@ -327,6 +338,9 @@ class GruLayer(ComponentNN):
             np.multiply(dh, self.one_minus_z[t+1], out=buf_h)
             dh_next += buf_h
             np.multiply(dh, self.z_prod_grad[t + 1], out=buf_h)
+            # Following has no dependence on a value that is changed within the loop and therefore can be moved as one
+            # operation outside the loop. It turns out that doing so destroys performance because either a transpose or
+            # selection of non-contiguous elements must occur in a much larger matrix.
             np.dot(u_h, self.rhr[t], out=buf_hh)
             np.dot(buf_h, buf_hh, out=buf_h_2)
             dh_next += buf_h_2
@@ -416,23 +430,32 @@ class GruBatchLayer(BatchSequencesComponentNN):
         self._max_seq_length = max_seq_length
         self.w = self.u = self.b = None
         self.dw = self.du = self.db = None
-        # input to activation functions, dimensionality: (L, B, 3*H)
-        self.sigmoid_in = np.empty((self._max_seq_length, self._max_num_sequences, 2 * self.dim_h), dtype=self._dtype)
-        self.tanh_in = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
-        # output from activation functions, dimensionality: (L, B, 3*H)
-        self.sigmoid_out = np.empty((self._max_seq_length, self._max_num_sequences, 2 * self.dim_h), dtype=self._dtype)
-        self.tanh_out = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
-        self.u_zr_partial = np.empty((self._max_num_sequences, 2 * self.dim_h), dtype=self._dtype)
-        self.u_h_partial = np.empty((self._max_num_sequences, self.dim_h), dtype=self._dtype)
-        self.r_prod_h = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
+        # inputs to activation functions, dimensionality: (L, B, 3*H)
+        self.sigmoid_in = np.empty((max_seq_length, self._max_num_sequences, 2 * dim_h), dtype=dtype)
+        self.tanh_in = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        # outputs from activation functions, dimensionality: (L, B, 3*H)
+        self.sigmoid_out = np.empty((max_seq_length, self._max_num_sequences, 2 * dim_h), dtype=dtype)
+        self.tanh_out = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.u_zr_partial = np.empty((self._max_num_sequences, 2 * dim_h), dtype=dtype)
+        self.u_h_partial = np.empty((self._max_num_sequences, dim_h), dtype=dtype)
+        self.r_prod_h = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         # hs[t, i, :] contains the hidden state for the (t-1)-input element, h[1] is first input hidden state
         # hs[0, i, :] is copied to with self.hs_last[i, :] at the beginning of forward propagation
-        self.hs_large = np.empty((self._max_seq_length + 1, self._max_num_sequences, self.dim_h), dtype=dtype)
+        self.hs_large = np.empty((max_seq_length + 1, self._max_num_sequences, dim_h), dtype=dtype)
         self.hs = None
         # hs_last[i, :] contains the last hidden state of the previous mini-batch for the i-th sequence
-        self.hs_last = np.zeros((self._max_num_sequences, self.dim_h), dtype=dtype)
-        self.one_minus_z = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
-        self.buf_b_h = np.empty((self._max_num_sequences, dim_h), dtype=self._dtype)
+        self.hs_last = np.zeros((self._max_num_sequences, dim_h), dtype=dtype)
+        self.one_minus_z = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.buf_b_h = np.empty((self._max_num_sequences, dim_h), dtype=dtype)
+        self.sigmoid_grad = np.empty((max_seq_length, self._max_num_sequences, 2 * dim_h), dtype=dtype)
+        self.tanh_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.dh = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.dh2 = np.empty((max_seq_length, self._max_num_sequences, 3 * dim_h), dtype=dtype)
+        self.dh_next = np.empty((self._max_num_sequences, dim_h), dtype=dtype)  # (H, )
+        self.h_tilde_minus_h = np.empty((max_seq_length, self._max_num_sequences,  dim_h), dtype=dtype)
+        self.z_prod_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.h_minus_h_prod_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.h_prod_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.reset_last_hidden()  # must initialize initial hidden state to 0 otherwise junk is read at first invocation
         self.x = None
 
@@ -468,22 +491,24 @@ class GruBatchLayer(BatchSequencesComponentNN):
             assert np.max(seq_lengths) <= x.shape[0]
             assert 0 <= np.min(seq_lengths)
 
-        self._curr_num_sequences = x.shape[1]
+        curr_num_sequences = self._curr_num_sequences = x.shape[1]
         curr_batch_seq_dim_length = self._curr_batch_seq_dim_length = x.shape[0]
-        self.x = x
         self._seq_lengths = seq_lengths
 
         self._curr_min_seq_length = np.amin(self._seq_lengths)
         self._curr_max_seq_length = np.amax(self._seq_lengths)
 
+        curr_max_seq_length = self._curr_max_seq_length
+
         if self.asserts_on:
             self.validate_zero_padding(x)
 
-        # "trim" self.hs_large to proper size (no copy)
-        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:self._curr_num_sequences, :]
+        # "trim" to proper sizes (no copies)
+        self.x = x[0:self._curr_max_seq_length]  # optimization
+        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:curr_num_sequences]  # correctness
 
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
-        self.hs[0] = self.hs_last[0:self._curr_num_sequences]  # makes a copy, which is desirable
+        self.hs[0] = self.hs_last[0:curr_num_sequences]  # makes a copy, which is desirable
 
         # non-batch was: (T, D) x (D, 3*H) = (T, 3*H)
         # now with batch: (T, B, D) x (D, 3*H) = (T, B, 3*H)
@@ -491,14 +516,14 @@ class GruBatchLayer(BatchSequencesComponentNN):
         wb_partial = np.dot(self.x, self.w.T) + self.b
 
         # "trim" to proper sizes (no copies)
-        sigmoid_in = self.sigmoid_in[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
-        sigmoid_out = self.sigmoid_out[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]  # (T, B, 2*H)
-        tanh_in = self.tanh_in[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
-        tanh_out = self.tanh_out[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
-        u_zr_partial = self.u_zr_partial[0:self._curr_num_sequences]  # (B, 2*H)
-        u_h_partial = self.u_h_partial[0:self._curr_num_sequences]  # (B, H)
-        one_minus_z = self.one_minus_z[0:curr_batch_seq_dim_length, 0:self._curr_num_sequences]
-        buf_b_h = self.buf_b_h[0:self._curr_num_sequences]
+        sigmoid_in = self.sigmoid_in[0:curr_max_seq_length, 0:curr_num_sequences]
+        sigmoid_out = self.sigmoid_out[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, 2*H)
+        tanh_in = self.tanh_in[0:curr_max_seq_length, 0:curr_num_sequences]
+        tanh_out = self.tanh_out[0:curr_max_seq_length, 0:curr_num_sequences]
+        u_zr_partial = self.u_zr_partial[0:curr_num_sequences]  # (B, 2*H)
+        u_h_partial = self.u_h_partial[0:curr_num_sequences]  # (B, H)
+        one_minus_z = self.one_minus_z[0:curr_max_seq_length, 0:curr_num_sequences]
+        buf_b_h = self.buf_b_h[0:curr_num_sequences]
         dim_h = self.dim_h
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
@@ -514,7 +539,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
             # sigmoid_out[t, :, (1*dim_h):(2*dim_h)].fill(1.0)  # for disabling reset gate r_t
             r_t = sigmoid_out[t, :, (1*dim_h):(2*dim_h)]  # (B, H)  OK
             np.subtract(1.0, z_t, out=one_minus_z[t])
-            r_prod_h = self.r_prod_h[t, 0:self._curr_num_sequences]  # (B, H)
+            r_prod_h = self.r_prod_h[t, 0:curr_num_sequences]  # (B, H)
             np.multiply(r_t, self.hs[t], out=r_prod_h)  # (B, H)
             # non-batch was  u_h_partial: (H1, H2) x (H2, ) == (H1, )
             # now with batch u_h_partial: ((B, H2) x (H1, H2)^T) == (B, H1)
@@ -525,7 +550,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
             np.multiply(self.hs[t], one_minus_z[t], out=buf_b_h)
             self.hs[t + 1] += buf_b_h
 
-        for s in xrange(self._curr_num_sequences):
+        for s in xrange(curr_num_sequences):
             seq_length = seq_lengths[s]
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[seq_length, s]
@@ -538,8 +563,178 @@ class GruBatchLayer(BatchSequencesComponentNN):
 
         return self.hs[1:(curr_batch_seq_dim_length + 1)]  # (T, B, H)
 
+    def vect_element_wise_matrix_plus_diag(self, n_vec, mat, n_rvec, out):
+        """
+        See non-batch version for this extension to batched.
+        For each of N items: Apply broadcasting to create implicit (N. B, H1, H2) and compute element-wise product of
+        vec and mat.
+        Add n_rvec[t] vector to its diagonal.
+
+        Args:
+            n_vec: matrix of shape (N, B, H1)
+                N, B vectors of size H1 (to be repeated as column vectors H2 times)
+            mat: matrix of shape (H1, H2)
+            n_rvec: N, B vectors of size D to be added to the diagonal of (H1, H2).
+            out: array of shape (N, B, H1, H2) to hold the results
+        """
+        if self.asserts_on:
+            assert n_vec.ndim == 3
+            n, b, h = n_vec.shape
+            assert mat.shape == (h, h)
+            assert n_rvec.shape == n_vec.shape
+            assert out.shape == (n, b, h, h)
+        n, b, h = n_vec.shape
+        # (N, B, H1, 1) hadamard (H1, H2) -> (N, B, H1, H2) hadamard (N, B, H1, H2).
+        c = np.expand_dims(n_vec, axis=3)
+        np.multiply(c, mat, out=out)
+        # can't find a way to vectorize this
+        for i in xrange(n):
+            for j in xrange(b):
+                out[i, j].flat[0::(h + 1)] += n_rvec[i, j]  # the most efficient way to add to a matrix's diagonal
+
     def backwards(self, delta_upper):
-        raise ValueError("Not implemented")
+        if self.asserts_on:
+            assert delta_upper.shape == (self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h)
+
+        # this check is critical for correctness of __back_propagation_loop()
+        self.validate_zero_padding(delta_upper)  # DO NOT REMOVE, if these elements are not zero, then we must zero them
+
+        curr_max_seq_length = self._curr_max_seq_length
+        curr_num_sequences = self._curr_num_sequences
+        dim_h = self.dim_h
+
+        # "trim" to proper sizes (no copies)
+        sigmoid_out = self.sigmoid_out[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, 2*H)
+        sigmoid_grad = self.sigmoid_grad[0:curr_max_seq_length, 0:curr_num_sequences]
+        tanh_out = self.tanh_out[0:curr_max_seq_length, 0:curr_num_sequences]
+        tanh_grad = self.tanh_grad[0:curr_max_seq_length, 0:curr_num_sequences]
+        hs = self.hs[0:curr_max_seq_length, 0:curr_num_sequences]
+
+        ac.sigmoid_grad(sigmoid_out, out=sigmoid_grad)
+        ac.tanh_grad(tanh_out, out=tanh_grad)
+
+        h_tilde_minus_h = self.h_tilde_minus_h[0:curr_max_seq_length, 0:curr_num_sequences]
+        np.subtract(tanh_out, hs, out=h_tilde_minus_h)
+
+        z_prod_grad = self.z_prod_grad[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, H)
+        np.multiply(tanh_grad, sigmoid_out[:, :, 0:dim_h], out=z_prod_grad)
+
+        h_minus_h_prod_grad = self.h_minus_h_prod_grad[0:curr_max_seq_length, 0:curr_num_sequences]
+        np.multiply(sigmoid_grad[:, :, 0:dim_h], h_tilde_minus_h, out=h_minus_h_prod_grad)
+
+        h_prod_grad = self.h_prod_grad[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, H)
+        np.multiply(sigmoid_grad[:, :, dim_h:(2 * dim_h)], hs, out=h_prod_grad)
+
+        if curr_max_seq_length > 0:
+            # (T-1, B, H, H)
+            rhr = np.empty((curr_max_seq_length - 1, curr_num_sequences, dim_h, dim_h), dtype=self._dtype)
+
+            # arg 1, 3 non-batched: (T-1, H), with batch: (T-1, B, H)
+            # arg 2 is part of model and stays the same (H, H)
+            # arg 4 rhr non-batched: (T-1, B, H, H)
+            self.vect_element_wise_matrix_plus_diag(
+                self.h_prod_grad[1:curr_max_seq_length, 0:curr_num_sequences, :],
+                self.u[dim_h:(2 * dim_h)],
+                self.sigmoid_out[1:curr_max_seq_length, 0:curr_num_sequences, (1 * dim_h):(2 * dim_h)],
+                rhr)
+
+            self.__back_propagation_loop(delta_upper, 0, curr_max_seq_length, rhr)
+
+        u_h = self.u[(2 * dim_h):, ]
+
+        # fill dh2
+        dh2 = self.dh2[0:curr_max_seq_length, 0:curr_num_sequences]
+        dh = self.dh[0:curr_max_seq_length, 0:curr_num_sequences]
+        np.multiply(dh, z_prod_grad, out=dh2[:, :, (2 * dim_h):])  # (T, B, H)
+        np.multiply(dh, h_minus_h_prod_grad, out=dh2[:, :, 0:dim_h])  # (T, B, H)
+        buf_b_hh = np.empty((curr_num_sequences, dim_h, dim_h), dtype=self._dtype)
+        for t in xrange(curr_max_seq_length):
+            # non-batch: (H1, 1) hadamard (H1, H2)
+            # batched:   (B, H1, 1) hadamard (B, H1, H2)
+            np.multiply(np.expand_dims(z_prod_grad[t], 2), u_h, out=buf_b_hh)
+            # non-batch: (H2, ) hadamard (H1, H2) -> (H1, H2) hadamard (H1, H2) row vector repeated
+            # batched:   (B, 1, H2) hadamard (B, H1, H2)
+            np.multiply(np.expand_dims(h_prod_grad[t], 1), buf_b_hh, out=buf_b_hh)
+            # non-batch: (H1, ) x (H1, H2) = (H2, )
+            # batched:   B times of (H1, ) x (H1, H2) -> B times of (H2, )
+            for b in xrange(curr_num_sequences):
+                np.dot(dh[t, b], buf_b_hh[b], out=dh2[t, b, dim_h:(2 * dim_h)])
+
+        if self.asserts_on:
+            self.validate_zero_padding(dh2)
+
+        # reduce_sum (T, B, H) to (H, )
+        np.sum(dh2, axis=(0, 1), out=self.db)
+
+        # we can't easily sum over the T, B dimensions using matrix multiplications, so we use a loop for the first
+        # dimension only (time)
+        self.dw.fill(0.0)
+        self.du.fill(0.0)
+        buf_3hxd = np.empty((3 * dim_h, self.dim_d), dtype=self._dtype)
+        buf_2hxh = np.empty((2 * dim_h, self.dim_h), dtype=self._dtype)
+        for t in xrange(curr_max_seq_length):
+            # (3*H, D) = (3*H, B) x (B, D) is the sum of outer products (3*H, 1) x (1, D) over the B sequences at time t
+            np.dot(dh2[t].T, self.x[t], out=buf_3hxd)  # (3*H, B) x (B, D)
+            self.dw += buf_3hxd
+            np.dot(dh2[t, :, 0:(2 * dim_h)].T, hs[t], out=buf_2hxh)  # (2*H, B) x (B, H)
+            self.du[:(2 * dim_h)] += buf_2hxh
+            np.dot(dh2[t, :, (2 * dim_h):].T, self.r_prod_h[t, 0:curr_num_sequences], out=buf_2hxh[0:dim_h])
+            self.du[(2 * dim_h):] += buf_2hxh[0:dim_h]
+
+        # non-batch was:  (T, 3 * H) x (3 * H, D) = (T, D)
+        # now with batch: (T, B, 3 * H) x (3 * H, D) = (T, B, D)
+        # it is easier to just allocate delta_err each time instead of trying to reuse it, which is not supported by
+        # np.dot(out=delta_err) when delta_err needs to be trimmed in the two leading dimensions
+        delta_err = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
+        np.dot(dh2, self.w, out=delta_err[0:curr_max_seq_length])
+        if curr_max_seq_length < self._curr_batch_seq_dim_length:
+            delta_err[curr_max_seq_length:].fill(0.0)
+
+        return delta_err
+
+    def __back_propagation_loop(self, delta_upper, low_t, high_t, rhr):
+        """
+        Reverse iteration starting from high_t - 1, finishing at low_t, both inclusive.
+        Populates self.dh[low_t:high_t]
+        Args:
+            delta_upper: error signal from upper layer, shape (L, B, H)
+            low_t: low index, inclusive
+            high_t: high index, exclusive
+            rhr: produced by vect_element_wise_matrix_plus_diag(.), shape (L-1, B, H, H)
+        """
+        # dh_next[t] is my delta(t,T) x DH_{t} computed recursively by (13)
+        # dh[t] is my delta(t, T)
+        # dht[t] is my DH_{t}
+        dim_h = self.dim_h
+        curr_num_sequences = self._curr_num_sequences
+        buf_b_h = self.buf_b_h[0:curr_num_sequences]
+        buf_b_h_2 = np.empty((curr_num_sequences, dim_h), dtype=self._dtype)
+        buf_hh = np.empty((dim_h, dim_h), dtype=self._dtype)
+        u_z = self.u[0:dim_h]
+        u_h = self.u[(2 * dim_h):]
+        dh_next = self.dh_next[0:curr_num_sequences]  # (B, H)
+        self.dh[high_t - 1, 0:curr_num_sequences] = delta_upper[high_t - 1]  # (B, H)
+        h_minus_h_prod_grad = self.h_minus_h_prod_grad[:, 0:curr_num_sequences]
+        one_minus_z = self.one_minus_z[:, 0:curr_num_sequences]
+        z_prod_grad = self.z_prod_grad[:, 0:curr_num_sequences]
+        # we could do here: np.dot(u_h, rhr) which is (H, H1) x (T-1, B, H1, H2) = (H, T-1, B, H2),
+        # but for quick access we want (T-1, B, H, H2) and transposing or slicing was found to be too expensive
+        for t in xrange(high_t - 2, low_t - 1, -1):
+            dh = self.dh[t + 1, 0:curr_num_sequences]  # (B, H)
+            np.multiply(dh, h_minus_h_prod_grad[t + 1], out=buf_b_h)
+            np.dot(buf_b_h, u_z, out=dh_next)  # (B, H) x (H, H) => (B, H)
+            np.multiply(dh, one_minus_z[t + 1], out=buf_b_h)  # (B, H)
+            dh_next += buf_b_h
+            np.multiply(dh, z_prod_grad[t + 1], out=buf_b_h)  # (B, H)
+            # with no batch  rhr: (T-1, H, H)
+            # mult: (H, H1) x (H1, H2) = (H, H2),  mult: (H, ) x (H, H2)
+            # now with batch rhr: (T-1, B, H, H)
+            # mult: (H, H1) with (B, H1, H2) -> (B, H, H2),  mult: (B, H, ) with (B, H, H2), so we have to have loop
+            for b in xrange(curr_num_sequences):
+                np.dot(u_h, rhr[t, b], out=buf_hh)
+                np.dot(buf_b_h[b], buf_hh, out=buf_b_h_2[b])
+            dh_next += buf_b_h_2  # (B, H)
+            np.add(delta_upper[t], dh_next, out=self.dh[t, 0:curr_num_sequences])
 
     def __unpack_model_or_grad(self, params):
         hxh = self.dim_h * self.dim_h

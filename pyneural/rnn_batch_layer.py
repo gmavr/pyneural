@@ -35,7 +35,6 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         self.data = None
         self.dh_raw = None
         self.dh_raw_large = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
-        self.delta_err_large = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_d), dtype=self._dtype)
         self.dh = np.empty((self._max_num_sequences, self.dim_h), dtype=self._dtype)
         self.dh_next = np.empty((self._max_num_sequences, self.dim_h), dtype=self._dtype)
         self.ac_grad_large = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
@@ -98,9 +97,8 @@ class RnnBatchLayer(BatchSequencesComponentNN):
             assert np.max(seq_lengths) <= data.shape[0]
             assert 0 <= np.min(seq_lengths)
 
-        self._curr_num_sequences = data.shape[1]
+        curr_num_sequences = self._curr_num_sequences = data.shape[1]
         curr_batch_seq_dim_length = self._curr_batch_seq_dim_length = data.shape[0]
-        self.data = data
         self._seq_lengths = seq_lengths
 
         self._curr_min_seq_length = np.amin(self._seq_lengths)
@@ -109,11 +107,12 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         if self.asserts_on:
             self.validate_zero_padding(data)
 
-        # "trim" self.hs_large to proper size (no copy)
-        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:self._curr_num_sequences, :]
+        # "trim" to proper sizes (no copies)
+        self.data = data[0:self._curr_max_seq_length]  # optimization
+        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:curr_num_sequences]  # correctness
 
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
-        self.hs[0] = self.hs_last[0:self._curr_num_sequences]  # makes a copy, which is desirable
+        self.hs[0] = self.hs_last[0:curr_num_sequences]  # makes a copy, which is desirable
 
         # non-batch was: ((H, D) x (D, T))^T = (T, D) x (D, H) = (T, H)
         # now with batch: (T, B, D) x (D, H) = (T, B, H)
@@ -122,7 +121,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
-        z_partial_2 = self.dh_next[0:self._curr_num_sequences]  # re-use scratch space and trim
+        z_partial_2 = self.dh_next[0:curr_num_sequences]  # re-use scratch space and trim
         for t in xrange(self._curr_max_seq_length):
             # non-batch was  z_partial_2:  ((H1, H2) x (H2, )) returns (H1, )
             # now with batch z_partial_2:  ((B, H2) x (H1, H2)^T) returns (B, H1)
@@ -130,7 +129,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
             z_partial_2 += z_partial[t]
             self.activation(z_partial_2, out=self.hs[t + 1])  # (B, H)
 
-        for s in xrange(self._curr_num_sequences):
+        for s in xrange(curr_num_sequences):
             seq_length = seq_lengths[s]
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[seq_length, s]
@@ -156,19 +155,17 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         if self._curr_num_sequences == self._max_num_sequences:
             # this is the common case (or it should be)
             # "trim" self.dh_raw_large to proper size (no copy) (T, B, H)
-            dh_raw = self.dh_raw = self.dh_raw_large[0:self._curr_batch_seq_dim_length]
-            ac_grad = self.ac_grad = self.ac_grad_large[0:self._curr_batch_seq_dim_length]
+            dh_raw = self.dh_raw = self.dh_raw_large[0:curr_max_seq_length]
+            ac_grad = self.ac_grad = self.ac_grad_large[0:curr_max_seq_length]
         else:
             # allocate new arrays instead of slicing in 2 dimensions, which could be slower because of elements
             # scattered further away in a larger block of memory
-            dh_raw = self.dh_raw = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h),
+            dh_raw = self.dh_raw = np.empty((curr_max_seq_length, self._curr_num_sequences, self.dim_h),
                                             dtype=self._dtype)
-            ac_grad = self.ac_grad = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h),
+            ac_grad = self.ac_grad = np.empty((curr_max_seq_length, self._curr_num_sequences, self.dim_h),
                                               dtype=self._dtype)
-        if curr_max_seq_length < self._curr_batch_seq_dim_length:
-            dh_raw[curr_max_seq_length:] = 0.0
 
-        self.activation_grad(self.hs[1:(self._curr_batch_seq_dim_length + 1)], out=ac_grad)
+        self.activation_grad(self.hs[1:(curr_max_seq_length + 1)], out=ac_grad)
 
         if curr_max_seq_length <= self.bptt_steps:
             self.__back_propagation_loop(delta_upper, 0, curr_max_seq_length)
@@ -184,6 +181,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
         # reduce_sum (T, B, H) to (H, )
         np.sum(dh_raw, axis=(0, 1), out=self.db)
+
         # we can't easily sum over the T, B dimensions using matrix multiplications, so we use a loop for the first
         # dimension only (time)
         self.dw_xh.fill(0.0)
@@ -201,14 +199,12 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
         # non-batch was:  (T, H) x (H, D) = (T, D)
         # now with batch: (T, B, H) x (H, D) = (T, B, D)
-        if self._curr_num_sequences == self._max_num_sequences:
-            # this is the common case
-            # "trim" self.delta_err_large to proper size (no copy)
-            delta_err = self.delta_err_large[0:self._curr_batch_seq_dim_length]
-            np.dot(dh_raw, self.w_xh, out=delta_err)
-        else:
-            # note: numpy does not allow as an out= argument a 3-D array "trimmed" in the leading 2 dimensions
-            delta_err = np.dot(dh_raw, self.w_xh)
+        # it is easier to just allocate delta_err each time instead of trying to reuse it, which is not supported by
+        # np.dot(out=delta_err) when delta_err needs to be trimmed in the two leading dimensions
+        delta_err = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
+        np.dot(dh_raw, self.w_xh, out=delta_err[0:curr_max_seq_length])
+        if curr_max_seq_length < self._curr_batch_seq_dim_length:
+            delta_err[curr_max_seq_length:].fill(0.0)
 
         if self._grad_clip_thres is not None:
             np.clip(self._grad, a_min=-self._grad_clip_thres, a_max=self._grad_clip_thres, out=self._grad)
@@ -226,7 +222,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
         # A thing of beauty: If delta_upper has all 0s after the end of each sequence in the mini-batch (as it should),
         # then the following loop will set self.dh_raw to properly be 0 for these elements.
-        # Outside of this method we call self.validate_zero_padding(self.dh_raw) to confirm this.
+        # Outside of this method we call self.validate_zero_padding(self.dh_raw) to confirm that delta_upper complies.
 
         if self._curr_num_sequences == self._max_num_sequences:  # slice only if we need to (unclear if matters..)
             dh_next, dh = self.dh_next, self.dh

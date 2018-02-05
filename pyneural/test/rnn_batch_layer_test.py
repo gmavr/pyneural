@@ -10,7 +10,7 @@ from pyneural.neural_base import BatchSequencesComponentNN
 
 
 def create_random_params(rnn_batch):
-    assert isinstance(rnn_batch, BatchSequencesComponentNN)
+    assert isinstance(rnn_batch, rbl.RnnBatchLayer)
 
     batch_size = rnn_batch.get_max_batch_size()
     dtype = rnn_batch.get_dtype()
@@ -137,12 +137,15 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         with self.assertRaises(AssertionError):
             loss_and_layer.forward_backwards(x, y, seq_lengths)
 
-    def test_forward_backward_equivalence(self):
+    def test_batching_equivalence(self):
+        """Verifies that a batched invocation of N sequences and N non-batched invocations of 1 sequence return the same
+         results for the forward and backwards passes.
+        """
         dim_d, dim_h = 3, 2
-        bptt_steps = 3
-        batch_size = 4
+        batch_size = 5
         max_batch_size = batch_size + 1
         max_seq_length = 4
+        bptt_steps = max_seq_length
         dtype, tolerance = np.float64, 1e-14
 
         # intentionally all sequences shorter than max_seq_length
@@ -151,15 +154,28 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             [[0.1, 2.1, -3.2], [2.1, -4.5, 3.4], [5.0, -3.1, -0.6], [0.0, 0.0, 0.0]],
             [[1.5, -0.7, 5.1], [-9.1, 2.7, 0.6], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             [[-5.0, 0.1, 0.2], [2.7, 9.1, -2.0], [2.1, -1.5, 1.4], [0.0, 0.0, 0.0]],
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             ], dtype=dtype)
-        seq_lengths = np.array([1, 3, 2, 3], dtype=np.int)
+        seq_lengths = np.array([1, 3, 2, 3, 0], dtype=np.int)
 
         self.assertEquals(data_t.shape, (batch_size, max_seq_length, dim_d))
         self.assertEquals(seq_lengths.shape, (batch_size, ))
 
-        data = np.empty((max_seq_length, batch_size, dim_d), dtype=dtype)
-        for i in range(max_seq_length):
-            data[i] = np.copy(data_t[:, i, :])
+        data = np.transpose(data_t, (1, 0, 2))
+
+        delta_upper_t = np.array([
+            [[-1.1, 2.3], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+            [[-0.1, -6.1], [1.5, 0.1], [2.1, -5.1], [0.0, 0.0]],
+            [[0.8, 2.1], [-2.1, 4.5], [0.0, 0.0], [0.0, 0.0]],
+            [[3.2, -5.4], [3.2, 2.1], [-4.6, -1.2], [0.0, 0.0]],
+            [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+        ], dtype=dtype)
+
+        self.assertEquals(delta_upper_t.shape, (batch_size, max_seq_length, dim_h))
+
+        delta_upper = np.transpose(delta_upper_t, (1, 0, 2))
+
+        # forward propagation
 
         rnn_layer = rl.RnnLayer(dim_d, dim_h, max_seq_length, dtype, "tanh", bptt_steps)
         rnn_batch_layer_1 = rbl.RnnBatchLayer(dim_d, dim_h, max_seq_length, max_batch_size, dtype,
@@ -219,25 +235,12 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             self.assertTrue(np.allclose(hs_first, out_hs3[i, 0:seq_length], rtol=tolerance, atol=tolerance))
 
             # check last-hidden state
-            hs_last = out_hs[i, seq_length - 1]
+            hs_last = out_hs[i, seq_length - 1] if seq_length > 0 else hs_init[i]
             self.assertTrue(np.allclose(hs_last, rnn_batch_layer_1.hs_last[i], rtol=tolerance, atol=tolerance))
             self.assertTrue(np.allclose(hs_last, out_hs_last2[i], rtol=tolerance, atol=tolerance))
             self.assertTrue(np.allclose(hs_last, rnn_batch_layer_3.hs_last[i], rtol=tolerance, atol=tolerance))
 
-        # check backpropagation
-
-        delta_upper_t = np.array([
-            [[-1.1, 2.3], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-            [[-0.1, -6.1], [1.5, 0.1], [2.1, -5.1], [0.0, 0.0]],
-            [[0.8, 2.1], [-2.1, 4.5], [0.0, 0.0], [0.0, 0.0]],
-            [[3.2, -5.4], [3.2, 2.1], [-4.6, -1.2], [0.0, 0.0]]
-        ], dtype=dtype)
-
-        self.assertEquals(delta_upper_t.shape, (batch_size, max_seq_length, dim_h))
-
-        delta_upper = np.empty((max_seq_length, batch_size, dim_h), dtype=dtype)
-        for i in xrange(max_seq_length):
-            delta_upper[i] = np.copy(delta_upper_t[:, i, :])
+        # backwards propagation
 
         delta_err_1 = rnn_batch_layer_1.backwards(delta_upper)
 
@@ -254,7 +257,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             accum_grad += rnn_layer.get_gradient()
 
             # first non-zero part should be identical to one retrieved from non-batch
-            self.assertLess(np.amax(np.fabs(delta_err - delta_err_1[0:seq_lengths[i], i])), tolerance)
+            self.assertTrue(np.allclose(delta_err, delta_err_1[0:seq_lengths[i], i], rtol=tolerance, atol=tolerance))
             # second part, if exists, should be 0.0
             if seq_lengths[i] < max_seq_length:
                 self.assertTrue(np.alltrue(np.equal(delta_err_1[seq_lengths[i]:max_seq_length, i], 0.0)))
@@ -265,7 +268,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             rnn_batch_layer_2.forward(data[:, [i], :], seq_lengths[[i]])
 
             delta_err_2 = rnn_batch_layer_2.backwards(delta_upper[:, [i], :])
-            self.assertLess(np.amax(np.fabs(delta_err_1[:, [i], :] - delta_err_2)), tolerance)
+            self.assertTrue(np.allclose(delta_err_1[:, [i], :], delta_err_2, rtol=tolerance, atol=tolerance))
             accum_grad_2 += rnn_batch_layer_2.get_gradient()
 
         self.assertTrue(np.allclose(accum_grad, rnn_batch_layer_1.get_gradient(), rtol=tolerance, atol=tolerance))

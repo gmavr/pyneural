@@ -278,20 +278,17 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
         if self._curr_num_sequences == self._max_num_sequences:
             # this is the common case (or it should be)
             # "trim" self.dh_raw_large to proper size (no copy) (T, B, H)
-            dh_raw = self.dh_raw = self.dh_raw_large[0:self._curr_batch_seq_dim_length]
-            ac_grad = self.ac_grad = self.ac_grad_large[0:self._curr_batch_seq_dim_length]
+            dh_raw = self.dh_raw = self.dh_raw_large[0:curr_max_seq_length]
+            ac_grad = self.ac_grad = self.ac_grad_large[0:curr_max_seq_length]
         else:
             # allocate new arrays instead of slicing in 2 dimensions, which could be slower because of elements
             # scattered further away in a larger block of memory
-            dh_raw = self.dh_raw = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h),
+            dh_raw = self.dh_raw = np.empty((curr_max_seq_length, self._curr_num_sequences, self.dim_h),
                                             dtype=self._dtype)
-            ac_grad = self.ac_grad = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h),
+            ac_grad = self.ac_grad = np.empty((curr_max_seq_length, self._curr_num_sequences, self.dim_h),
                                               dtype=self._dtype)
 
-        if curr_max_seq_length < self._curr_batch_seq_dim_length:
-            dh_raw[curr_max_seq_length:] = 0.0
-
-        self.activation_grad(self.hs[1:(self._curr_batch_seq_dim_length + 1)], out=ac_grad)
+        self.activation_grad(self.hs[1:(curr_max_seq_length + 1)], out=ac_grad)
 
         if self._curr_num_sequences == self._max_num_sequences:  # slice only if we need to (unclear if matters..)
             dh_next, dh = self.dh_next, self.dh
@@ -333,14 +330,12 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
 
         # non-batch was:  (T, H) x (H, D) = (T, D)
         # now with batch: (T, B, H) x (H, D) = (T, B, D)
-        if self._curr_num_sequences == self._max_num_sequences:
-            # this is the common case
-            # "trim" self.delta_err_large to proper size (no copy)
-            delta_err = self.delta_err_large[0:self._curr_batch_seq_dim_length]
-            np.dot(dh_raw, self.w_xh, out=delta_err)
-        else:
-            # note: numpy did not allow as an out= array a 3-D array "trimmed" in the leading 2 dimensions
-            delta_err = np.dot(dh_raw, self.w_xh)
+        # it is easier to just allocate delta_err each time instead of trying to reuse it, which is not supported by
+        # np.dot(out=delta_err) and delta_err needs to be trimmed in the two leading dimensions
+        delta_err = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
+        np.dot(dh_raw, self.w_xh, out=delta_err[0:curr_max_seq_length])
+        if curr_max_seq_length < self._curr_batch_seq_dim_length:
+            delta_err[curr_max_seq_length:].fill(0.0)
 
         if self._grad_clip_thres is not None:
             np.clip(self._grad, a_min=-self._grad_clip_thres, a_max=self._grad_clip_thres, out=self._grad)
