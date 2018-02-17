@@ -2,8 +2,6 @@ import time
 
 import numpy as np
 
-from context import pyneural
-
 import pyneural.ce_softmax_layer as ce_sm
 import pyneural.embedding_layer as em
 import pyneural.gru_layer as gru
@@ -280,21 +278,20 @@ def gru_fwd_versions_time():
     dim_d, dim_h, max_seq_length = 500, 200, 100
     dtype = np.float64
 
-    gru1 = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
-    gru2 = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
+    gru_obj = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
 
     np.random.seed(seed=47)
-    x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, gru1.get_num_p(), max_seq_length)
+    x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, gru_obj.get_num_p(), max_seq_length)
 
-    gru1.init_parameters_storage(model=model)
-    gru2.init_parameters_storage(model=np.copy(model))
+    gru_obj.init_parameters_storage(model=model)
 
-    # Run them once before the loop to warm up cache. Whichever version runs first usually takes longer to execute.
+    # Run before the loop to warm up cache. Without a loop whichever version runs first usually takes longer to execute.
     # The timed ones are run interleaved.
-    # For dim_d = 500, dim_h = 200, n = 100 the optimized version is faster by 2%-8%.
+    # For dim_d = 500, dim_h = 200, n = 100 on 2.3GHz corei7 the optimized version is faster by 2%-8%.
 
-    y1 = gru1.forward(x)
-    y2 = gru2.forward_batch_debug(x)
+    y1 = gru_obj.forward(x)
+    y2 = np.copy(gru_obj.forward_batch_debug(x))
+    assert(np.allclose(y1, y2, rtol=1e-14, atol=1e-14))
 
     num_iter = 5
     times1 = []
@@ -302,19 +299,17 @@ def gru_fwd_versions_time():
 
     for i in range(num_iter):
         start_time = time.time()
-        gru1.forward(x)
+        gru_obj.forward(x)
         times1.append(time.time() - start_time)
 
         start_time = time.time()
-        gru2.forward_batch_debug(x)
+        gru_obj.forward_batch_debug(x)
         times2.append(time.time() - start_time)
 
     t1 = sum(times1)
     print("time elapsed (opt): %.4g sec" % t1)
     t2 = sum(times2)
     print("time elapsed (dbg): %.4g sec" % t2)
-
-    assert(np.allclose(y1, y2, rtol=1e-14, atol=1e-14))
 
 
 def gru_time():

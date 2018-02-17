@@ -2,8 +2,6 @@ import time
 
 import numpy as np
 
-from context import pyneural
-
 import pyneural.embedding_layer as em
 import pyneural.layers as layers
 import pyneural.sgd as sgd

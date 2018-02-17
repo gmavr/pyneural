@@ -4,21 +4,27 @@ import activation as ac
 from neural_base import ComponentNN
 from rnn_layer import RnnLayer
 from rnn_batch_layer import RnnBatchLayer, glorot_init
+from gru_layer import GruBatchLayer
+
+"""Rnn layers with only the last hidden state is returned.
+
+All implementations present here have class structure shortcomings. The best implementation would be a general
+delegation class that encapsulates an rnn layer class (standard or gru), and forwards to it the forward and backwards
+methods while adjusting their arguments.
+"""
 
 
 class TrailingRnnLayer(ComponentNN):
     """Standard Rnn Layer where only the last time step hidden state is returned. Typically used in "encoding" schemes.
 
-    First dimension is time, the second dimension is batch (sequence index).
-
     Different from regular RnnLayer only in the following:
     1) The hidden state of the last element only is returned (and gradient properly adjusted).
-    2) The option to truncate back propagation through time (BPTT) does not exist. (If we did truncated BPTT then the
-    elements beyond the truncation length would not contribute anything to the gradient, which in fact might be
-    desirable in certain application).
+    2) The option to truncate back propagation through time (BPTT) does not exist, so error is propagated to the full
+    length of the sequence. (If we did truncated BPTT then the elements beyond the truncation length would contribute
+    nothing to the gradient, which in fact might be desirable in certain application).
 
     Implementing it from scratch instead of in terms of RnnLayer incurs significant code duplication for some small
-    gains in readability and run-time execution performance. For dim_h = 100, the cost overhead is about 10%-15%.
+    gains in readability and run-time execution performance. For dim_h = 100 the execution cost savings is 10%-15%.
     """
 
     def __init__(self, dim_d, dim_h, max_seq_length, dtype, activation="sigmoid", asserts_on=True):
@@ -189,6 +195,8 @@ class TrailingRnnLayer2(RnnLayer):
 
 class TrailingRnnBatchLayer2(RnnBatchLayer):
     """
+    First dimension is time, the second dimension is batch (sequence index).
+
     Correct implementation, but instead use TrailingRnnBatchLayer which is marginally faster.
     """
     def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation="tanh", asserts_on=True):
@@ -227,8 +235,11 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
 
     First dimension is time, the second dimension is batch (sequence index).
 
-    Marginally faster than TrailingRnnBatchLayer2.
-    Not worth the trouble writing it, but passes gradient check and is in fact a few percentage points faster.
+    Marginally faster (a few percentage points) than TrailingRnnBatchLayer2. Passes gradient check.
+    Probably not worth the effort and code duplication.
+
+    The only computational savings: For one less than each time step where all sequences are active in the branch, we
+    are spared the addition of the error from higher layer to that step.
 
     Unlike TrailingRnnLayer, it is not easy to write a slightly modified but more efficient batched version of
     RnnBatchLayer. That's because in back propagation the naive unrolling works only if sequences are aligned to all
@@ -341,3 +352,41 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
             np.clip(self._grad, a_min=-self._grad_clip_thres, a_max=self._grad_clip_thres, out=self._grad)
 
         return delta_err
+
+
+class TrailingGruBatchLayer(GruBatchLayer):
+    """
+    First dimension is time, the second dimension is batch (sequence index).
+
+    Uses implementation inheritance to avoid boilerplate from composition and forwarding.
+
+    This is essentially an identical wrapper as TrailingRnnBatchLayer2.
+    """
+
+    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True):
+        super(TrailingGruBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on)
+        self.y = None
+
+    def forward(self, data, seq_lengths):
+        y1 = super(TrailingGruBatchLayer, self).forward(data, seq_lengths)
+        self.y = np.empty((self._curr_num_sequences, self.dim_h), dtype=self._dtype)
+        for i in xrange(self._curr_num_sequences):
+            if seq_lengths[i] == 0:
+                # This case is not well-defined because the assumption is that the layer always returns 1 hidden state.
+                # Return all 0s predictions and treat the upper layer error vector as 0 (even if it is not).
+                # This is similar to drop-out applied.
+                self.y[i].fill(0.0)
+            else:
+                self.y[i] = y1[seq_lengths[i] - 1, i, :]
+        return self.y
+
+    def backwards(self, delta_upper):
+        if self.asserts_on:
+            assert delta_upper.shape == (self._curr_num_sequences, self.dim_h)
+        delta_upper1 = np.zeros((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h), self._dtype)
+        for i in xrange(self._curr_num_sequences):
+            # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it not supplied as all 0s,
+            # which is legitimate to happen). This is similar to drop-out applied. See also forward_batch().
+            if self._seq_lengths[i] > 0:
+                delta_upper1[self._seq_lengths[i] - 1, i, :] = delta_upper[i]
+        return super(TrailingGruBatchLayer, self).backwards(delta_upper1)

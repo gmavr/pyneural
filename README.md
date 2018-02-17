@@ -20,13 +20,17 @@ An unusual feature of this framework is that the RNN implementations are *vector
 
 ## Build Instructions
 
-Works only with python 2.7. Has been extensively used on mac os (10.12.6 and around) and ubuntu 16.04. The few python package dependencies are listed in `requirements.txt`. It is strongly recommended for dependency isolation to use a python [virtualenv](https://virtualenv.pypa.io/en/stable/).
+Framework works only with python 2.7. It has been extensively used on macOS (10.13.3 and similar) and ubuntu 16.04. The few python package dependencies are listed in `requirements.txt`. It is strongly recommended for dependency isolation to use a python [virtualenv](https://virtualenv.pypa.io/en/stable/). You can build egg or wheel distribution package using the usual `setuptools` mechanisms. For building the wheel package, install `wheel` and then issue `python setup.py bdist_wheel`
 
-Significant variations in execution speed were observed across  Ubuntu installations on very similar hardware. It appears that performance of numpy, even if it is the same version, varies depending on how numpy and its dependencies was compiled. On certain Ubuntu installations you will achieve optimum performance when you compile numpy from [source code](https://github.com/numpy/numpy) on your system. It appears that numpy 1.12.0 is faster than the later 1.14.0.
 
 ## Testing and Correctness
 
-There is an extensive test suite using the python `unittest` framework. The full test suite can be invoked from the command line by issuing `python -m unittest discover -s pyneural/test -p "*_test.py"` from the top-level directory of the repository.
+There is an extensive test suite using the python `unittest` framework. The full test suite can be invoked from the command line by issuing `python -m unittest discover -s pyneural/test -p "*_test.py"` from the top-level directory of the repository. It can also be invoked running by the packaging script `python setup.py test`
 
 Anything having a gradient (all discrete layers and activation functions), as well as some composite networks, has a gradient check run as part of the test suite. General support for gradient checks is inside `gradient_check.py`. The directory `samples` contains several multi-layer networks with code that trains them and shows that the loss decreases during training.
 
+## Build Optimizations 
+
+Significant variations in execution speed were observed across  Ubuntu installations on very similar hardware. It appears that the performance of numpy, even if it is the same version, varies depending on how numpy and its dependencies were compiled. Numpy links against a [BLAS](http://www.netlib.org/blas/) implementation. On macOS that is provided by the Accelerate framework. On linux very efficient implementations are [OpenBLAS](http://www.openblas.net/) and for Intel CPUs the [Intel MKL](https://software.intel.com/en-us/mkl), which was made free on 2017 for certain uses. On certain Ubuntu installations you will achieve optimum performance when you compile numpy from [source code](https://github.com/numpy/numpy) on your system and configure it to use one of the above libraries before you build it. You will likely see some performance improvements if you compile OpenBLAS from sources or switch to MKL.
+
+On Ubuntu 16.04 Skylake Core I5 and when using large models and data it was found that using more than one threads with OpenBLAS often *slowed* execution while also consuming more CPU resources. With MKL that was never observed and there was always some small performance gain with more threads. For both libraries the shell variable `OMP_NUM_THREADS` controls the number of threads to be used. If you do not set it explicitly, the default is the number of CPU cores, which can result in very poor CPU utilization for OpenBLAS as explained above. Always tune and pass `OMP_NUM_THREADS` explicitly. If you have N jobs to run, it is practically always better to run N concurrent executions with one thread each than one execution with N threads. Intel MKL appears to be faster than OpenBLAS in the backpropagation path of RNNs.
