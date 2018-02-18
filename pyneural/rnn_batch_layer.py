@@ -1,7 +1,7 @@
 import numpy as np
 
 import activation as ac
-from neural_base import BatchSequencesComponentNN, glorot_init
+from neural_base import BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
 class RnnBatchLayer(BatchSequencesComponentNN):
@@ -10,17 +10,18 @@ class RnnBatchLayer(BatchSequencesComponentNN):
     First dimension is time, the second dimension is batch (sequence index).
     """
     def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation='tanh', bptt_steps=None,
-                 grad_clip_thres=None, asserts_on=True):
+                 grad_clip_thres=None, asserts_on=True, assert_upper_delta_padded=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_params = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
         super(RnnBatchLayer, self).__init__(num_params, max_seq_length, batch_size, dtype)
-        # self._curr_batch_seq_dim_length == x.shape[0] of last batch (last x passed in forward_batch(self))
-        self._curr_batch_seq_dim_length = 0  # must be 0 before the first iteration
+        # self._curr_seq_length_dim_max == x.shape[0] of last batch (last x passed in forward_batch(self))
+        self._curr_seq_length_dim_max = 0  # must be 0 before the first iteration
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
         assert self.bptt_steps <= self._max_seq_length
         self.w_xh = self.w_hh = self.b = None
         self.dw_xh = self.dw_hh = self.db = None
         self.asserts_on = asserts_on
+        self.assert_upper_delta_padded = assert_upper_delta_padded
         if grad_clip_thres:
             self._grad_clip_thres = grad_clip_thres
             assert self._grad_clip_thres > 0.5
@@ -32,7 +33,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         self.hs = None
         # hs_last[i, :] contains the last hidden state of the previous mini-batch for the i-th sequence
         self.hs_last = np.zeros((self._max_num_sequences, self.dim_h), dtype=dtype)
-        self.data = None
+        self.x = None
         self.dh_raw = None
         self.dh_raw_large = np.empty((self._max_seq_length, self._max_num_sequences, self.dim_h), dtype=self._dtype)
         self.dh = np.empty((self._max_num_sequences, self.dim_h), dtype=self._dtype)
@@ -55,7 +56,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
     def set_init_h(self, init_h):
         """
-        Client must pass here init_h.shape[0] == data.shape[1] in the next invocation of forward_batch().
+        Client must pass here init_h.shape[0] == x.shape[1] in the next invocation of forward_batch().
         The code does not validate this.
         """
         if self.asserts_on:
@@ -86,30 +87,23 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         np.multiply(scale_factor, np.eye(self.dim_h, dtype=self._dtype), out=self.w_hh)
         self.b.fill(0.0)
 
-    def forward(self, data, seq_lengths):
+    def forward(self, x, seq_lengths):
         if self.asserts_on:
-            assert data.ndim == 3
-            assert data.shape[0] <= self._max_seq_length
-            assert data.shape[1] <= self._max_num_sequences
-            assert data.shape[2] == self.dim_d
-            assert seq_lengths.shape[0] == data.shape[1]
-            # assert seq_lengths.dtype == np.int
-            assert np.max(seq_lengths) <= data.shape[0]
-            assert 0 <= np.min(seq_lengths)
+            validate_x_and_lengths(x, self._max_seq_length, self._max_num_sequences, seq_lengths)
+            assert x.ndim == 3
+            assert x.shape[2] == self.dim_d
 
-        curr_num_sequences = self._curr_num_sequences = data.shape[1]
-        curr_batch_seq_dim_length = self._curr_batch_seq_dim_length = data.shape[0]
-        self._seq_lengths = seq_lengths
+        self._set_lengths(x, seq_lengths)
 
-        self._curr_min_seq_length = np.amin(self._seq_lengths)
-        self._curr_max_seq_length = np.amax(self._seq_lengths)
+        curr_num_sequences = self._curr_num_sequences
+        curr_seq_length_dim_max = self._curr_seq_length_dim_max
 
         if self.asserts_on:
-            self.validate_zero_padding(data)
+            self._validate_zero_padding(x)
 
         # "trim" to proper sizes (no copies)
-        self.data = data[0:self._curr_max_seq_length]  # optimization
-        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:curr_num_sequences]  # correctness
+        self.x = x[0:self._curr_max_seq_length]  # optimization
+        self.hs = self.hs_large[0:(curr_seq_length_dim_max + 1), 0:curr_num_sequences]  # correctness
 
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
         self.hs[0] = self.hs_last[0:curr_num_sequences]  # makes a copy, which is desirable
@@ -117,7 +111,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         # non-batch was: ((H, D) x (D, T))^T = (T, D) x (D, H) = (T, H)
         # now with batch: (T, B, D) x (D, H) = (T, B, H)
         # broadcasting: (T, B, H) + (H, ) = (T, B, H) + (1, H) -> (T, B, H) + (T, B, H)
-        z_partial = np.dot(self.data, self.w_xh.T) + self.b
+        z_partial = np.dot(self.x, self.w_xh.T) + self.b
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
@@ -134,20 +128,21 @@ class RnnBatchLayer(BatchSequencesComponentNN):
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[seq_length, s]
             # The hidden state after each sequence's last was assigned junk values.
-            # Zero-out hidden state after each sequence's last.
-            # Technically this is not necessary because the upper layer ignores these values anyway, but it may be
-            # useful for checking invariants and correctness
-            if seq_length < curr_batch_seq_dim_length:
-                self.hs[(seq_length+1):(curr_batch_seq_dim_length+1), s] = 0.0
+            # Zero-out hidden state after each sequence's last. Required by base class contract.
+            if seq_length < curr_seq_length_dim_max:
+                self.hs[(seq_length+1):(curr_seq_length_dim_max+1), s] = 0.0
 
-        return self.hs[1:(curr_batch_seq_dim_length + 1)]  # (T, B, H)
+        return self.hs[1:(curr_seq_length_dim_max + 1)]  # (T, B, H)
 
     def backwards(self, delta_upper):
         if self.asserts_on:
-            assert delta_upper.shape == (self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h)
+            assert delta_upper.shape == (self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_h)
 
-            # this check is critical for correctness of __back_propagation_loop()
-            self.validate_zero_padding(delta_upper)  # DO NOT REMOVE
+        if self.assert_upper_delta_padded:
+            # Although this check is expensive, it so critical that it deserves its own independent flag.
+            # It does not verify correctness of this layer but instead that a contract-compliant error signal is fed
+            # from the higher layer.
+            self._validate_zero_padding(delta_upper)  # DO NOT REMOVE! If not 0-padded, we return wrong error signal
 
         curr_max_seq_length = self._curr_max_seq_length
 
@@ -177,7 +172,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
                 self.__back_propagation_loop(delta_upper, 0, curr_max_seq_length % self.bptt_steps)
 
         if self.asserts_on:
-            self.validate_zero_padding(dh_raw)
+            self._validate_zero_padding(dh_raw)
 
         # reduce_sum (T, B, H) to (H, )
         np.sum(dh_raw, axis=(0, 1), out=self.db)
@@ -189,8 +184,8 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         hxd_array, hxh_array = self.hxd_array, self.hxh_array  # this seems to make a difference in run-time
         for t in xrange(curr_max_seq_length):
             # (H, D) = (H, B) x (B, D) is the sum of outer products (H, 1) x (1, D) over the B sequences at time t
-            # self.dw_xh += np.dot(dh_raw[t].T, self.data[t])
-            np.dot(dh_raw[t].T, self.data[t], out=hxd_array)
+            # self.dw_xh += np.dot(dh_raw[t].T, self.x[t])
+            np.dot(dh_raw[t].T, self.x[t], out=hxd_array)
             self.dw_xh += hxd_array
             # (H, H) = (H, B) x (B, H) is the sum of outer products (H, 1) x (1, H) over the B sequences at time t
             # self.dw_hh += np.dot(dh_raw[t].T, self.hs[t])
@@ -201,9 +196,10 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         # now with batch: (T, B, H) x (H, D) = (T, B, D)
         # it is easier to just allocate delta_err each time instead of trying to reuse it, which is not supported by
         # np.dot(out=delta_err) when delta_err needs to be trimmed in the two leading dimensions
-        delta_err = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
+        delta_err = np.empty((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
         np.dot(dh_raw, self.w_xh, out=delta_err[0:curr_max_seq_length])
-        if curr_max_seq_length < self._curr_batch_seq_dim_length:
+        if curr_max_seq_length < self._curr_seq_length_dim_max:
+            # required by base class contract
             delta_err[curr_max_seq_length:].fill(0.0)
 
         if self._grad_clip_thres is not None:
@@ -222,7 +218,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
         # A thing of beauty: If delta_upper has all 0s after the end of each sequence in the mini-batch (as it should),
         # then the following loop will set self.dh_raw to properly be 0 for these elements.
-        # Outside of this method we call self.validate_zero_padding(self.dh_raw) to confirm that delta_upper complies.
+        # Outside of this method we call self._validate_zero_padding(self.dh_raw) to confirm that delta_upper complies.
 
         if self._curr_num_sequences == self._max_num_sequences:  # slice only if we need to (unclear if matters..)
             dh_next, dh = self.dh_next, self.dh
@@ -290,7 +286,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
         self.dim_h = dim_h
         num_params = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
         super(RnnBatchLayerTime2nd, self).__init__(num_params, max_seq_length, batch_size, dtype)
-        self._curr_batch_seq_dim_length = 0  # must be 0 before the first iteration
+        self._curr_seq_length_dim_max = 0  # must be 0 before the first iteration
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
         assert self.bptt_steps <= self._max_seq_length
         self.w_xh = self.w_hh = self.b = None
@@ -302,7 +298,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
         # hs_last[i, :] contains the last hidden state of the previous mini-batch for the i-th sequence
         self.hs = None
         self.hs_last = np.zeros((self._max_num_sequences, self.dim_h), dtype=dtype)
-        self.data = None
+        self.x = None
         self.dh_raw = None
         self.activation, self.activation_grad = ac.select_activation(activation)
 
@@ -315,7 +311,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
 
     def set_init_h(self, init_h):
         """
-        Client must pass here init_h.shape[0] == data.shape[1] in the next invocation of forward_batch().
+        Client must pass here init_h.shape[0] == x.shape[1] in the next invocation of forward_batch().
         The code does not validate this.
         """
         if self.asserts_on:
@@ -328,29 +324,29 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
     def reset_last_hidden(self):
         self.hs_last.fill(0.0)
 
-    def forward(self, data, seq_lengths):
+    def forward(self, x, seq_lengths):
         if self.asserts_on:
-            assert data.ndim == 3
-            assert data.shape[1] <= self._max_seq_length
-            assert data.shape[0] <= self._max_num_sequences
-            assert data.shape[2] == self.dim_d
-            assert seq_lengths.shape[0] == data.shape[0]
+            assert x.ndim == 3
+            assert x.shape[1] <= self._max_seq_length
+            assert x.shape[0] <= self._max_num_sequences
+            assert x.shape[2] == self.dim_d
+            assert seq_lengths.shape[0] == x.shape[0]
             assert seq_lengths.dtype == np.int
-            assert np.max(seq_lengths) <= data.shape[1]
-            assert 0 <= np.min(seq_lengths)
+            assert seq_lengths.max() <= x.shape[1]
+            assert 0 <= seq_lengths.min()
 
-        self._curr_num_sequences = data.shape[0]
-        curr_batch_seq_dim_length = self._curr_batch_seq_dim_length = data.shape[1]
-        self.data = data
+        self._curr_num_sequences = x.shape[0]
+        curr_seq_length_dim_max = self._curr_seq_length_dim_max = x.shape[1]
+        self.x = x
         self._seq_lengths = seq_lengths
 
         self._curr_min_seq_length = np.amin(self._seq_lengths)
         self._curr_max_seq_length = np.amax(self._seq_lengths)
 
-        # self.validate_zero_padding(data) does not work for time in 2nd dim
+        # self._validate_zero_padding(x) does not work for time in 2nd dim
 
         # "trim" self.hs_large to proper size (no copy)
-        self.hs = self.hs_large[0:self._curr_num_sequences, 0:(curr_batch_seq_dim_length + 1), :]
+        self.hs = self.hs_large[0:self._curr_num_sequences, 0:(curr_seq_length_dim_max + 1), :]
 
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
         self.hs[:, 0] = self.hs_last[0:self._curr_num_sequences]  # makes a copy, which is desirable
@@ -358,7 +354,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
         # non-batch was: ((H, D) x (D, T))^T returns (T, H)
         # now with batch: (B, T, D) x (D, H) returns (B, T, H)
         # broadcasting: (B, T, H) + (H, ) = (B, T, H) + (1, H) -> (B, T, H) + (B, T, H)
-        z_partial = np.dot(self.data, self.w_xh.T) + self.b
+        z_partial = np.dot(self.x, self.w_xh.T) + self.b
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
@@ -373,12 +369,11 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
             seq_length = seq_lengths[s]
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[s, seq_length, :]
-            # zero hidden state after each sequence's last
-            # was: overwrite / pad hidden state of each sequence with last hidden of the sequence
-            if seq_length < curr_batch_seq_dim_length:
-                self.hs[s, (seq_length+1):(curr_batch_seq_dim_length+1), :] = 0.0
+            # Zero-out hidden state after each sequence's last. Required by base class contract.
+            if seq_length < curr_seq_length_dim_max:
+                self.hs[s, (seq_length+1):(curr_seq_length_dim_max+1), :] = 0.0
 
-        return self.hs[:, 1:(curr_batch_seq_dim_length + 1)]  # (B, T, H)
+        return self.hs[:, 1:(curr_seq_length_dim_max + 1)]  # (B, T, H)
 
     def backwards(self, delta_upper):
         # use RnnBatchLayer

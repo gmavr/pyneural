@@ -193,67 +193,23 @@ class TrailingRnnLayer2(RnnLayer):
         return super(TrailingRnnLayer2, self).backwards(delta_upper1)
 
 
-class TrailingRnnBatchLayer2(RnnBatchLayer):
+class TrailingRnnBatchLayer(RnnBatchLayer):
     """
     First dimension is time, the second dimension is batch (sequence index).
 
-    Correct implementation, but instead use TrailingRnnBatchLayer which is marginally faster.
+    Uses implementation inheritance to avoid boilerplate from composition and forwarding.
     """
     def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation="tanh", asserts_on=True):
-        super(TrailingRnnBatchLayer2, self).__init__(dim_d, dim_h, max_seq_length, batch_size,
-                                                     dtype=dtype, activation=activation, bptt_steps=max_seq_length,
-                                                     asserts_on=asserts_on)
-        self.y = None
-
-    def forward(self, data, seq_lengths):
-        y1 = super(TrailingRnnBatchLayer2, self).forward(data, seq_lengths)
-        self.y = np.empty((self._curr_num_sequences, self.dim_h), dtype=self._dtype)
-        for i in xrange(self._curr_num_sequences):
-            if seq_lengths[i] == 0:
-                # This case is not well-defined because the assumption is that the layer always returns 1 hidden state.
-                # Return all 0s predictions and treat the upper layer error vector as 0 (even if it is not).
-                # This is similar to drop-out applied.
-                self.y[i].fill(0.0)
-            else:
-                self.y[i] = y1[seq_lengths[i] - 1, i, :]
-        return self.y
-
-    def backwards(self, delta_upper):
-        if self.asserts_on:
-            assert delta_upper.shape == (self._curr_num_sequences, self.dim_h)
-        delta_upper1 = np.zeros((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h), self._dtype)
-        for i in xrange(self._curr_num_sequences):
-            # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it not supplied as all 0s,
-            # which is legitimate to happen). This is similar to drop-out applied. See also forward_batch().
-            if self._seq_lengths[i] > 0:
-                delta_upper1[self._seq_lengths[i] - 1, i, :] = delta_upper[i]
-        return super(TrailingRnnBatchLayer2, self).backwards(delta_upper1)
-
-
-class TrailingRnnBatchLayer(RnnBatchLayer):
-    """Standard Rnn Layer where only the last time step hidden state is returned. Typically used in "encoding" schemes.
-
-    First dimension is time, the second dimension is batch (sequence index).
-
-    Marginally faster (a few percentage points) than TrailingRnnBatchLayer2. Passes gradient check.
-    Probably not worth the effort and code duplication.
-
-    The only computational savings: For one less than each time step where all sequences are active in the branch, we
-    are spared the addition of the error from higher layer to that step.
-
-    Unlike TrailingRnnLayer, it is not easy to write a slightly modified but more efficient batched version of
-    RnnBatchLayer. That's because in back propagation the naive unrolling works only if sequences are aligned to all
-    finish at the the end of the batch, instead of aligned to all start at the beginning of the batch, as is normal.
-    This is a hybrid implementation were all delta_err from higher layer are fed until we reach the point where all
-    sequences in the batch are present, then stop feeding from higher layer.
-    """
-
-    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation="tanh", grad_clip_thres=None,
-                 asserts_on=True):
-        super(TrailingRnnBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, batch_size=batch_size,
+        super(TrailingRnnBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, batch_size,
                                                     dtype=dtype, activation=activation, bptt_steps=max_seq_length,
-                                                    grad_clip_thres=grad_clip_thres, asserts_on=asserts_on)
+                                                    asserts_on=asserts_on)
         self.y = None
+
+    def get_max_seq_length_out(self):
+        return 1
+
+    def get_seq_lengths_out(self):
+        return np.ones(self._curr_num_sequences, dtype=np.int32)
 
     def forward(self, data, seq_lengths):
         y1 = super(TrailingRnnBatchLayer, self).forward(data, seq_lengths)
@@ -271,87 +227,13 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
     def backwards(self, delta_upper):
         if self.asserts_on:
             assert delta_upper.shape == (self._curr_num_sequences, self.dim_h)
-
-        curr_max_seq_length = self._curr_max_seq_length
-
-        # that many elements will be backpropagated using full (but sparse) error from higher layer
-        # the rest will have an optimized version
-        num_feed_upper_error = curr_max_seq_length - self._curr_min_seq_length + 1
-        delta_upper_my = np.zeros((num_feed_upper_error, self._curr_num_sequences, self.dim_h), self._dtype)
-
+        delta_upper1 = np.zeros((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_h), self._dtype)
         for i in xrange(self._curr_num_sequences):
-            # if self._seq_lengths[i] == 0 leave delta_upper_my all 0s (even if it not supplied as all 0s,
+            # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it was not supplied as all 0s,
             # which is legitimate to happen). This is similar to drop-out applied. See also forward_batch().
             if self._seq_lengths[i] > 0:
-                delta_upper_my[self._seq_lengths[i] - self._curr_min_seq_length, i, :] = delta_upper[i]
-
-        # (T, B, H)
-        if self._curr_num_sequences == self._max_num_sequences:
-            # this is the common case (or it should be)
-            # "trim" self.dh_raw_large to proper size (no copy) (T, B, H)
-            dh_raw = self.dh_raw = self.dh_raw_large[0:curr_max_seq_length]
-            ac_grad = self.ac_grad = self.ac_grad_large[0:curr_max_seq_length]
-        else:
-            # allocate new arrays instead of slicing in 2 dimensions, which could be slower because of elements
-            # scattered further away in a larger block of memory
-            dh_raw = self.dh_raw = np.empty((curr_max_seq_length, self._curr_num_sequences, self.dim_h),
-                                            dtype=self._dtype)
-            ac_grad = self.ac_grad = np.empty((curr_max_seq_length, self._curr_num_sequences, self.dim_h),
-                                              dtype=self._dtype)
-
-        self.activation_grad(self.hs[1:(curr_max_seq_length + 1)], out=ac_grad)
-
-        if self._curr_num_sequences == self._max_num_sequences:  # slice only if we need to (unclear if matters..)
-            dh_next, dh = self.dh_next, self.dh
-        else:
-            dh_next = self.dh_next[0:self._curr_num_sequences]
-            dh = self.dh[0:self._curr_num_sequences]
-        ac_grad = self.ac_grad
-        dh_next.fill(0.0)
-        # max() is required for the special case of 0-length sequences
-        for t in xrange(curr_max_seq_length - 1, max(self._curr_min_seq_length - 2, -1), -1):
-            # select at 1st dim from (T, B, H) : (H, ) -> (B, H)
-            np.add(delta_upper_my[t - self._curr_min_seq_length + 1], dh_next, out=dh)
-            np.multiply(dh, ac_grad[t], out=dh_raw[t])
-            np.dot(dh_raw[t], self.w_hh, out=dh_next)
-
-        for t in xrange(self._curr_min_seq_length - 2, -1, -1):
-            np.multiply(dh_next, ac_grad[t], out=dh_raw[t])
-            # (H1, ) x (H1, H2) = (H2, )
-            np.dot(dh_raw[t], self.w_hh, out=dh_next)
-
-        if self.asserts_on:
-            self.validate_zero_padding(dh_raw)
-
-        # reduce_sum (T, B, H) to (H, )
-        np.sum(dh_raw, axis=(0, 1), out=self.db)
-
-        # we can't easily sum over the T, B dimensions using matrix multiplications, so we use a loop for the first
-        # dimension only (time)
-        self.dw_xh.fill(0.0)
-        self.dw_hh.fill(0.0)
-        hxd_array, hxh_array = self.hxd_array, self.hxh_array  # this seems to make a difference in run-time
-        for t in xrange(curr_max_seq_length):
-            # (H, D) = (H, B) x (B, D) is the sum of outer products (H, 1) x (1, D) over the B sequences at time t
-            np.dot(dh_raw[t].T, self.data[t], out=hxd_array)
-            self.dw_xh += hxd_array
-            # (H, H) = (H, B) x (B, H) is the sum of outer products (H, 1) x (1, H) over the B sequences at time t
-            np.dot(dh_raw[t].T, self.hs[t], out=hxh_array)
-            self.dw_hh += hxh_array
-
-        # non-batch was:  (T, H) x (H, D) = (T, D)
-        # now with batch: (T, B, H) x (H, D) = (T, B, D)
-        # it is easier to just allocate delta_err each time instead of trying to reuse it, which is not supported by
-        # np.dot(out=delta_err) and delta_err needs to be trimmed in the two leading dimensions
-        delta_err = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
-        np.dot(dh_raw, self.w_xh, out=delta_err[0:curr_max_seq_length])
-        if curr_max_seq_length < self._curr_batch_seq_dim_length:
-            delta_err[curr_max_seq_length:].fill(0.0)
-
-        if self._grad_clip_thres is not None:
-            np.clip(self._grad, a_min=-self._grad_clip_thres, a_max=self._grad_clip_thres, out=self._grad)
-
-        return delta_err
+                delta_upper1[self._seq_lengths[i] - 1, i, :] = delta_upper[i]
+        return super(TrailingRnnBatchLayer, self).backwards(delta_upper1)
 
 
 class TrailingGruBatchLayer(GruBatchLayer):
@@ -360,12 +242,18 @@ class TrailingGruBatchLayer(GruBatchLayer):
 
     Uses implementation inheritance to avoid boilerplate from composition and forwarding.
 
-    This is essentially an identical wrapper as TrailingRnnBatchLayer2.
+    This is essentially an identical wrapper as TrailingRnnBatchLayer.
     """
 
     def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True):
         super(TrailingGruBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on)
         self.y = None
+
+    def get_max_seq_length_out(self):
+        return 1
+
+    def get_seq_lengths_out(self):
+        return np.ones(self._curr_num_sequences, dtype=np.int32)
 
     def forward(self, data, seq_lengths):
         y1 = super(TrailingGruBatchLayer, self).forward(data, seq_lengths)
@@ -383,9 +271,9 @@ class TrailingGruBatchLayer(GruBatchLayer):
     def backwards(self, delta_upper):
         if self.asserts_on:
             assert delta_upper.shape == (self._curr_num_sequences, self.dim_h)
-        delta_upper1 = np.zeros((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h), self._dtype)
+        delta_upper1 = np.zeros((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_h), self._dtype)
         for i in xrange(self._curr_num_sequences):
-            # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it not supplied as all 0s,
+            # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it was not supplied as all 0s,
             # which is legitimate to happen). This is similar to drop-out applied. See also forward_batch().
             if self._seq_lengths[i] > 0:
                 delta_upper1[self._seq_lengths[i] - 1, i, :] = delta_upper[i]

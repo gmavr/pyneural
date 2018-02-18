@@ -1,7 +1,7 @@
 import numpy as np
 
 import activation as ac
-from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init
+from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
 class GruLayer(ComponentNN):
@@ -482,30 +482,22 @@ class GruBatchLayer(BatchSequencesComponentNN):
 
     def forward(self, x, seq_lengths):
         if self.asserts_on:
+            validate_x_and_lengths(x, self._max_seq_length, self._max_num_sequences, seq_lengths)
             assert x.ndim == 3
-            assert x.shape[0] <= self._max_seq_length
-            assert x.shape[1] <= self._max_num_sequences
             assert x.shape[2] == self.dim_d
-            assert seq_lengths.shape[0] == x.shape[1]
-            # assert seq_lengths.dtype == np.int
-            assert np.max(seq_lengths) <= x.shape[0]
-            assert 0 <= np.min(seq_lengths)
 
-        curr_num_sequences = self._curr_num_sequences = x.shape[1]
-        curr_batch_seq_dim_length = self._curr_batch_seq_dim_length = x.shape[0]
-        self._seq_lengths = seq_lengths
+        self._set_lengths(x, seq_lengths)
 
-        self._curr_min_seq_length = np.amin(self._seq_lengths)
-        self._curr_max_seq_length = np.amax(self._seq_lengths)
-
+        curr_num_sequences = self._curr_num_sequences
+        curr_seq_length_dim_max = self._curr_seq_length_dim_max
         curr_max_seq_length = self._curr_max_seq_length
 
         if self.asserts_on:
-            self.validate_zero_padding(x)
+            self._validate_zero_padding(x)
 
         # "trim" to proper sizes (no copies)
         self.x = x[0:self._curr_max_seq_length]  # optimization
-        self.hs = self.hs_large[0:(curr_batch_seq_dim_length + 1), 0:curr_num_sequences]  # correctness
+        self.hs = self.hs_large[0:(curr_seq_length_dim_max + 1), 0:curr_num_sequences]  # correctness
 
         # restore the last hidden state of the previous batch (or what was set to via set_init_h())
         self.hs[0] = self.hs_last[0:curr_num_sequences]  # makes a copy, which is desirable
@@ -555,13 +547,11 @@ class GruBatchLayer(BatchSequencesComponentNN):
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[seq_length, s]
             # The hidden state after each sequence's last was assigned junk values.
-            # Zero-out hidden state after each sequence's last.
-            # Technically this is not necessary because the upper layer ignores these values anyway, but it may be
-            # useful for checking invariants and correctness
-            if seq_length < curr_batch_seq_dim_length:
-                self.hs[(seq_length+1):(curr_batch_seq_dim_length+1), s] = 0.0
+            # Zero-out hidden state after each sequence's last. Required by base class contract.
+            if seq_length < curr_seq_length_dim_max:
+                self.hs[(seq_length+1):(curr_seq_length_dim_max+1), s] = 0.0
 
-        return self.hs[1:(curr_batch_seq_dim_length + 1)]  # (T, B, H)
+        return self.hs[1:(curr_seq_length_dim_max + 1)]  # (T, B, H)
 
     def vect_element_wise_matrix_plus_diag(self, n_vec, mat, n_rvec, out):
         """
@@ -594,10 +584,12 @@ class GruBatchLayer(BatchSequencesComponentNN):
 
     def backwards(self, delta_upper):
         if self.asserts_on:
-            assert delta_upper.shape == (self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_h)
+            assert delta_upper.shape == (self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_h)
 
-        # this check is critical for correctness of __back_propagation_loop()
-        self.validate_zero_padding(delta_upper)  # DO NOT REMOVE, if these elements are not zero, then we must zero them
+        # This check is too critical to be omitted. It is expensive to compute but not very much compared to the cost of
+        # the rest of this implementation. It does not verify correctness of this layer but instead that a contract-
+        # compliant error signal is fed from the higher layer.
+        self._validate_zero_padding(delta_upper)  # DO NOT REMOVE! If not 0-padded, we return wrong error signal
 
         curr_max_seq_length = self._curr_max_seq_length
         curr_num_sequences = self._curr_num_sequences
@@ -661,7 +653,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
                 np.dot(dh[t, b], buf_b_hh[b], out=dh2[t, b, dim_h:(2 * dim_h)])
 
         if self.asserts_on:
-            self.validate_zero_padding(dh2)
+            self._validate_zero_padding(dh2)
 
         # reduce_sum (T, B, H) to (H, )
         np.sum(dh2, axis=(0, 1), out=self.db)
@@ -685,9 +677,10 @@ class GruBatchLayer(BatchSequencesComponentNN):
         # now with batch: (T, B, 3 * H) x (3 * H, D) = (T, B, D)
         # it is easier to just allocate delta_err each time instead of trying to reuse it, which is not supported by
         # np.dot(out=delta_err) when delta_err needs to be trimmed in the two leading dimensions
-        delta_err = np.empty((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
+        delta_err = np.empty((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_d), dtype=self._dtype)
         np.dot(dh2, self.w, out=delta_err[0:curr_max_seq_length])
-        if curr_max_seq_length < self._curr_batch_seq_dim_length:
+        if curr_max_seq_length < self._curr_seq_length_dim_max:
+            # required by base class contract
             delta_err[curr_max_seq_length:].fill(0.0)
 
         return delta_err

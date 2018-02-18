@@ -1,6 +1,6 @@
 import numpy as np
 
-from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init
+from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
 class EmbeddingLayer(ComponentNN):
@@ -39,9 +39,9 @@ class EmbeddingLayer(ComponentNN):
     def forward(self, x):
         if self.asserts_on:
             assert x.ndim == 1
-            # assert x.dtype == np.int
+            assert np.issubdtype(x.dtype, np.integer)
             if x.shape[0] != 0:
-                assert 0 <= np.amin(x) and np.amax(x) < self.dim_k
+                assert 0 <= x.min() and x.max() < self.dim_k
 
         self._num_samples = x.shape[0]
         self.x = x
@@ -110,38 +110,41 @@ class EmbeddingLayerBatch(BatchSequencesComponentNN):
 
     def forward(self, x, seq_lengths):
         if self.asserts_on:
+            validate_x_and_lengths(x, self._max_seq_length, self._max_num_sequences, seq_lengths)
             assert x.ndim == 2
-            assert 0 < x.shape[0] <= self._max_seq_length and x.shape[1] <= self._max_num_sequences
-            # assert x.dtype == np.int
-            assert 0 <= np.amin(x) and np.amax(x) < self.dim_k
-            assert seq_lengths.shape[0] == x.shape[1]
-            # assert seq_lengths.dtype == np.int
-            assert np.max(seq_lengths) <= x.shape[0]
+            assert 0 <= x.min() and x.max() < self.dim_k  # requires 0-padded inputs!
 
-        self._curr_batch_seq_dim_length = x.shape[0]
-        self._curr_num_sequences = x.shape[1]
-        self.x = x
-        self._seq_lengths = seq_lengths
+        self._set_lengths(x, seq_lengths)
 
         if self.asserts_on:
-            self.validate_zero_padding(x)
+            self._validate_zero_padding(x)
 
+        self.x = x
+
+        # this does a lot of extra work for batches with short sequences, but much faster than alternative, see below
         self.y = self.embedding_matrix[x]
+        # required by base class contract
+        self._zero_pad_overwrite(self.y)  # this is (by far) the most expensive operation
 
-        # zeroing out is for validating correctness rather than required for correctness, as higher layers do not read
-        # beyond end-of-sequence data (other than verifying that they are zeroed out)
-        self.zero_pad_overwrite(self.y)
+        # following is much slower than the looking all indices and then zeroing out the extra ones
+        # self.y = np.empty((x.shape[0], x.shape[1], self.dim_d), dtype=self._dtype)
+        # for j in xrange(x.shape[1]):
+        #     if 0 < seq_lengths[j]:
+        #         # slicing twice also across non-leading dimensions, can't be fast
+        #         self.y[:seq_lengths[j], j] = self.embedding_matrix[x[:seq_lengths[j], j]]
+        #     if seq_lengths[j] < x.shape[0]:
+        #         self.y[seq_lengths[j]:, j].fill(0.0)
 
         return self.y
 
     def backwards(self, delta_err):
         if self.asserts_on:
-            assert delta_err.shape == (self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_d)
+            assert delta_err.shape == (self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_d)
             assert delta_err.dtype == self._dtype
+            self._validate_zero_padding(delta_err)  # required by base class contract
 
-            self.validate_zero_padding(delta_err)
-
-        # todo: add dk_threshold logic as EmbeddingLayer
+        # we can't use here the dk_threshold trick as in EmbeddingLayer because that involves 2 loops which is
+        # prohibitively slow
         self._grad2.fill(0.0)
 
         # unfortunately this can't be vectorized, because the same element self._grad2[i1, i2] may need to be updated

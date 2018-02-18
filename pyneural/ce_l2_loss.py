@@ -62,13 +62,12 @@ class BatchSequencesWithL2Loss(nb.BatchSequencesLossNN):
     It recognizes only the h_init optional argument and passes it appropriately.
     """
 
-    def __init__(self, component_nn):
+    def __init__(self, component_nn, asserts_on=True):
         assert isinstance(component_nn, nb.BatchSequencesComponentNN)
         self.component_nn = component_nn
-        self.asserts_on = True
+        self.asserts_on = asserts_on
         super(BatchSequencesWithL2Loss, self).__init__(
-            num_p=self.component_nn.get_num_p(), max_seq_length=component_nn.get_max_seq_length(),
-            batch_size=component_nn.get_max_batch_size(), dtype=component_nn.get_dtype())
+            num_p=self.component_nn.get_num_p(), dtype=component_nn.get_dtype())
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -82,28 +81,32 @@ class BatchSequencesWithL2Loss(nb.BatchSequencesLossNN):
         self.component_nn.set_gradient_storage(self._grad)
 
     def forward_backwards(self, x, y_true, seq_lengths):
-        # x is validated by self.component_nn anyway, do not duplicate here
-
         if self.asserts_on:
+            # x is validated further in self.component_nn anyway
             assert seq_lengths.shape[0] == x.shape[1]
-            assert seq_lengths.dtype == np.int
-            assert np.max(seq_lengths) <= x.shape[0]
+            assert np.issubdtype(seq_lengths.dtype, np.integer)
+            assert seq_lengths.max() <= x.shape[0]
 
-        self._curr_num_sequences = x.shape[1]
-        self._curr_batch_seq_dim_length = x.shape[0]
+        num_sequences = x.shape[1]
 
         self._x, self._y_true, self._seq_lengths = x, y_true, seq_lengths
 
-        # This object does not validate that elements past end-of-sequence of passed y_true are 0. But if y_true
-        # contains non-zero for past-end-of-sequence elements, then the delta_err computed here will have non-zero
-        # elements at locations where the component back propagation expects 0 and the error will be caught there.
-
         y = self.component_nn.forward(x, seq_lengths)
+
+        seq_length_dim_max = self.component_nn.get_max_seq_length_out()
+        our_seq_lengths = self.component_nn.get_seq_lengths_out()
 
         if self.asserts_on:
             assert y_true.shape == y.shape
+            assert y_true.dtype == y.dtype
 
         delta_err = y - y_true
+
+        # There is no guarantee that elements in y_true after the sequence lengths are 0 and we MUST ignore them, so
+        # zero out their contribution to error.
+        if our_seq_lengths.min() != seq_length_dim_max:  # only 0-pad if necessary
+            nb.zero_pad_overwrite(delta_err, seq_length_dim_max, num_sequences, our_seq_lengths)
+
         loss = 0.5 * np.sum(delta_err * delta_err)
         delta_err2 = self.component_nn.backwards(delta_err)
         return loss, self._grad, delta_err2

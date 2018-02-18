@@ -314,8 +314,7 @@ class CRFLayer(LossNN):
     def _validate_labels(self, labels):
         assert labels.ndim == 1
         assert len(self.data) == len(labels)
-        # np.uint{8,16,32} are not subtypes of np.uint (on mac os)
-        # assert np.issubdtype(labels.dtype, np.int) or np.issubdtype(labels.dtype, np.uint)
+        assert np.issubdtype(labels.dtype, np.integer)
         assert np.max(labels) < self.dim_k and 0 <= np.min(labels)
 
     def score_for_seq(self, labels):

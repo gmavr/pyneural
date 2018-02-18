@@ -79,11 +79,6 @@ class TrailingRnnTest(gcs.GradientCheckTestShared):
 
         loss_and_layer.init_parameters_storage(model=model)
 
-        tr_layer_2 = trl.TrailingRnnBatchLayer2(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype,
-                                                activation="tanh")
-        loss_and_layer_2 = BatchSequencesWithL2Loss(tr_layer_2)
-        loss_and_layer_2.init_parameters_storage(model=model)
-
         tr_layer_gru = trl.TrailingGruBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype)
         loss_and_layer_gru = BatchSequencesWithL2Loss(tr_layer_gru)
         model = 0.1 * np.random.standard_normal((tr_layer_gru.get_num_p(),)).astype(dtype)
@@ -91,15 +86,11 @@ class TrailingRnnTest(gcs.GradientCheckTestShared):
 
         x, y, seq_lengths = create_random_data_non_full_batch(tr_layer)
         self.do_param_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
-        self.do_param_batched_gradient_check(loss_and_layer_2, x, y, seq_lengths, tolerance, h_init)
         self.do_param_batched_gradient_check(loss_and_layer_gru, x, y, seq_lengths, tolerance, h_init)
 
         x, y, seq_lengths = create_random_data_full_batch(tr_layer)
         self.do_input_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
         self.do_param_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
-
-        self.do_input_batched_gradient_check(loss_and_layer_2, x, y, seq_lengths, tolerance, h_init)
-        self.do_param_batched_gradient_check(loss_and_layer_2, x, y, seq_lengths, tolerance, h_init)
 
         self.do_input_batched_gradient_check(loss_and_layer_gru, x, y, seq_lengths, tolerance, h_init)
         self.do_param_batched_gradient_check(loss_and_layer_gru, x, y, seq_lengths, tolerance, h_init)

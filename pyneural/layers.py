@@ -246,20 +246,18 @@ class RnnEmbeddingsSoftMaxBatch(BatchSequencesLossNN):
         assert isinstance(rnn_layer, RnnBatchLayer)
         assert isinstance(embedding_layer, EmbeddingLayerBatch)
         num_params = softmax_layer.get_num_p() + rnn_layer.get_num_p() + embedding_layer.get_num_p()
-        super(RnnEmbeddingsSoftMaxBatch, self).__init__(
-            num_params, rnn_layer.get_max_seq_length(), rnn_layer.get_max_batch_size(),
-            rnn_layer.get_dtype())
+        super(RnnEmbeddingsSoftMaxBatch, self).__init__(num_params,  rnn_layer.get_dtype())
         self.softmax_layer = softmax_layer
         self.rnn_layer = rnn_layer
         self.embedding_layer = embedding_layer
         assert self._dtype == softmax_layer.get_dtype() and self._dtype == rnn_layer.get_dtype() \
             and self._dtype == embedding_layer.get_dtype()
-        assert self._max_seq_length == softmax_layer.get_max_seq_length() \
-            and self._max_seq_length == rnn_layer.get_max_seq_length() \
-            and self._max_seq_length == embedding_layer.get_max_seq_length()
-        assert self._max_num_sequences == softmax_layer.get_max_batch_size() \
-            and self._max_num_sequences == rnn_layer.get_max_batch_size() \
-            and self._max_num_sequences == embedding_layer.get_max_batch_size()
+        max_seq_length = embedding_layer.get_max_seq_length()
+        assert max_seq_length == softmax_layer.get_max_seq_length() \
+            and max_seq_length == rnn_layer.get_max_seq_length()
+        max_num_sequences = embedding_layer.get_max_batch_size()
+        assert max_num_sequences == softmax_layer.get_max_batch_size() \
+            and max_num_sequences == rnn_layer.get_max_batch_size()
 
     def get_display_dict(self):
         d = self._init_display_dict()

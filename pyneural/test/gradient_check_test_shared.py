@@ -78,7 +78,8 @@ class GradientCheckTestShared(unittest.TestCase):
         assert x.ndim == 3
         num_input_params = x.shape[0] * x.shape[1] * x.shape[2]
 
-        assert np.all(np.max(seq_lengths) == seq_lengths)
+        # gradient check w.r.to inputs is currently supported only on full batches
+        assert np.all(seq_lengths.max() == seq_lengths)
 
         # needed only for setting y_true (should be a separate call)
         loss_obj.forward_backwards(x, y_true, seq_lengths)

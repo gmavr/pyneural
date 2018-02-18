@@ -48,12 +48,12 @@ class CoreNN(object):
                 until init_parameters_storage() or set_model() is invoked.
             grad: If not None, gradient np.array of shape (self.get_num_p(), ) to be used for the lifetime of the object
                 until init_parameters_storage() or set_gradient_storage() is invoked.
-
         """
         if model is None:
             self._model = np.empty((self._num_p,), dtype=self._dtype)
         else:
-            assert model.shape == (self._num_p,) and model.dtype == self._dtype
+            if model.shape != (self._num_p,) or model.dtype != self._dtype:
+                raise ValueError("Passed illegal model structure")
             self._model = model
         self._set_model_references_in_place()
 
@@ -61,6 +61,8 @@ class CoreNN(object):
             self._grad = np.empty((self._num_p,), dtype=self._dtype)
         else:
             assert grad.shape == (self._num_p,) and grad.dtype == self._dtype
+            if grad.shape != (self._num_p,) or grad.dtype != self._dtype:
+                raise ValueError("Passed illegal gradient structure")
             self._grad = grad
         self._set_gradient_references_in_place()
 
@@ -77,11 +79,12 @@ class CoreNN(object):
         Args:
             model: current model parameters, np.array of shape (self.get_num_p(), )
         Raises:
-            AssertionError: on consistency errors (todo: better to raise ValueError)
+            ValueError: on illegal arguments or invocation
         """
-        assert model.shape == (self._num_p,)
-        assert model.dtype == self._dtype
-        assert self._model is None
+        if model.shape != (self._num_p,) or model.dtype != self._dtype:
+            raise ValueError("Passed illegal buffer structure")
+        if self._model is not None:
+            raise ValueError("Model buffer already set")
         self._model = model
         self._set_model_references_in_place()
 
@@ -98,11 +101,12 @@ class CoreNN(object):
         Args:
             grad: storage for the gradient of the model parameters, np.array of shape (self.get_num_p(), )
         Raises:
-            AssertionError: on consistency errors (todo: better to raise ValueError)
+            ValueError: on illegal arguments or invocation
         """
-        assert grad.shape == (self._num_p,)
-        assert grad.dtype == self._dtype
-        assert self._grad is None
+        if grad.shape != (self._num_p,) or grad.dtype != self._dtype:
+            raise ValueError("Passed illegal buffer structure")
+        if self._grad is not None:
+            raise ValueError("Gradient buffer already set")
         self._grad = grad
         self._set_gradient_references_in_place()
 
@@ -217,8 +221,9 @@ class LossNN(CoreNN):
 
     def __init__(self, num_p, dtype):
         super(LossNN, self).__init__(num_p, dtype)
-        self._x = None  # needed for gradient checks only really
-        self._y_true = None  # needed for gradient checks only really
+        # self._x and self._y_true  are needed for gradient checks
+        self._x = None
+        self._y_true = None
 
     @abstractmethod
     def forward_backwards(self, x, y_true):
@@ -266,125 +271,204 @@ class LossNN(CoreNN):
 
 
 class BatchSequencesComponentNN(CoreNN):
+    """Layer taking as input a batch of sequences, where each sequence can have a different length.
+
+    First dimension is time, second is sequence index.
+    """
 
     def __init__(self, num_p, max_seq_length, batch_size, dtype):
         """
         Args:
             num_p: model dimensionality
             max_seq_length: maximum possible length of a sequence in any batch, i.e. upper limit on x.shape[0]
-            batch_size: number of sequences in a batch, i.e. x.shape[1]
+            batch_size: maximum possible number of sequences in any batch, i.e. upper limit on x.shape[1]
             dtype: floating arithmetic type (np.float32 or np.float64)
         """
         super(BatchSequencesComponentNN, self).__init__(num_p, dtype)
-        self._max_seq_length = max_seq_length
-        self._max_num_sequences = batch_size
-        # self._curr_batch_seq_dim_length == x.shape[0] of last batch (last x passed in forward_batch(self))
-        # It is allowed that no sequence in the batch has that length
-        self._curr_batch_seq_dim_length = 0
-        self._curr_num_sequences = 0
+        self._max_seq_length = max_seq_length  # maximum length of dimension 0 (time) of x for all batches
+        self._max_num_sequences = batch_size  # maximum length of dimension 1 (sequence) of x for all batches
+        if self._max_seq_length <= 0:
+            raise ValueError("max_seq_length must be positive integer, supplied %s" % str(max_seq_length))
+        if self._max_num_sequences <= 0:
+            raise ValueError("batch_size must be positive integer, supplied %s" % str(batch_size))
+        # minimum and max lengths of valid values in dimension 0 (time) input x
         self._curr_min_seq_length = 0
         self._curr_max_seq_length = 0
-        self._seq_lengths = None
+        self._curr_seq_length_dim_max = 0  # current input x.shape[0]
+        # It is allowed that no sequence in the batch has length equal to the maximum dimension, i.e. it is allowed
+        # that _curr_max_seq_length < _curr_seq_length_dim_max
+        self._curr_num_sequences = 0  # current input x.shape[1]
+        self._seq_lengths = None  # 1-d np.array
 
     @abstractmethod
     def forward(self, x, seq_lengths):
-        """ Performs one batch forward propagation using the current model.
+        """Performs one forward propagation using the current model.
         
         Retains reference to passed input data matrix and assumes that it will NOT be changed externally until the next
-        invocation of forward_batch()
-        Sequences in the batch that are shorter than maximum sequence length M should be passed as 0-padded to length M.
-        (but it seems that if padded elements are not set to 0s, their values will be ignored anyway?
-        We still check that they are in fact 0.0 as an assertion on the lower layer)
-        It is allowed that all sequences in the batch are shorter than M.
+        invocation of this method.
+        The values of the inputs after the end of each sequence length are required to be all 0.0 and this method can
+        rely on that.
+        The values of the outputs after the end of each sequence length are produced as all 0.0.
+        (This design decision regarding 0-padding is because all implementations in practice internally require them to
+        be 0 and if not they would both have to check if 0 and set to 0.)
+        It is allowed that all sequences in the batch are shorter than maxT.
         It is allowed that one or more sequences have 0 length.
-        The size M of first dimension of x must be less or equal to max_seq_length  chosen at object construction time.
+        Size maxT of first dimension of x must be less or equal to max_seq_length chosen at object construction time.
         The number of sequences N passed must be equal to batch_size chosen at object construction time.
         
         Args:
-            x: N input sequences, each at most M observations, numpy.array of shape (M, N, input_dimension)
-            seq_lengths: the lengths of the N input sequences, numpy.array of shape (N, )
+            x: numpy.array of shape (maxT, N, ..)
+                N input sequences, each at most maxT observations, 0-padded
+            seq_lengths: numpy.array of np.integer of shape (N, )
+                the lengths of the N input sequences
         Returns:
-            y: layer forward output, numpy.array, usually of shape (M, N, output_dimension) (or (N, output_dimension))
+            y: layer forward output, numpy.array, usually of shape (maxT, N, output_dimension), 0-padded
         """
 
     @abstractmethod
     def backwards(self, delta_upper):
-        """ Sets model parameters keeping internal hidden state unchanged
-        
+        """Performs one forward propagation using the current model (keeping internal model unchanged).
+
+        The values of the input delta_upper after the end of each sequence length are required to be all 0.0 and this
+        method can rely on that.
+        The values of the delta_err_out after the end of each sequence length are produced as all 0.0.
+
         Args:
             delta_upper: error vector returned from upper layer, i.e. derivative of loss function w.r. to outputs
-                of this layer. numpy.array of shape (M, N, output_dimension)   (or (N, output_dimension))
+                of this layer. numpy.array of shape (maxT, N, output_dimension)   (or (N, output_dimension))
                 it must hold delta_upper[i, j, :] == 0 for any i, j with i > _seq_lengths[j]
         Returns:
             delta_err_out: error vector from this layer, i.e. derivative of loss function w.r. to inputs to this layer
-                numpy.array of shape (M, N, input_dimension)
+                numpy.array of shape (maxT, N, input_dimension), 0-padded
         """
 
     def get_max_seq_length(self):
         return self._max_seq_length
 
+    def get_max_seq_length_out(self):
+        # The common case as default implementation. Override as needed.
+        return self._max_seq_length
+
     def get_max_batch_size(self):
         return self._max_num_sequences
 
-    def validate_zero_padding(self, array3d):
-        """ Verifies that it holds array3d[i, j, :] == 0 for any i, j with i > self._seq_lengths[j]
+    def get_seq_lengths(self):
+        return self._seq_lengths
+
+    def get_seq_lengths_out(self):
+        """Return the output sequence lengths.
+        """
+        # The common case as default implementation. Override as needed.
+        return self._seq_lengths
+
+    def _set_lengths(self, x, seq_lengths):
+        self._curr_num_sequences = x.shape[1]
+        self._curr_seq_length_dim_max = x.shape[0]
+        self._seq_lengths = seq_lengths
+        self._curr_min_seq_length = self._seq_lengths.min()
+        self._curr_max_seq_length = self._seq_lengths.max()
+
+    def _validate_zero_padding(self, array):
+        """Validates that array[i, j] == 0 for any i, j with seq_lengths[j] < i
         
         Args:
-            array3d: numpy.array of shape (M, N, D)
+            array: numpy.array of shape (M, N, ...)
         Raises:
             AssertionError: when checked invariant does not hold
         """
-        if self._curr_min_seq_length == self._curr_batch_seq_dim_length:
+        if self._curr_min_seq_length == self._curr_seq_length_dim_max:
             # optimization, nothing to check, return now
             return
-        for j in xrange(self._curr_num_sequences):
-            if self._seq_lengths[j] < self._curr_batch_seq_dim_length:
-                assert np.alltrue(np.equal(array3d[self._seq_lengths[j]:self._curr_batch_seq_dim_length, j], 0.0))
+        validate_zero_padding(array, self._curr_seq_length_dim_max, self._curr_num_sequences, self._seq_lengths)
 
-    def zero_pad_overwrite(self, array3d):
-        """ Sets array3d[i, j, :] == 0 for any i, j with i > self._seq_lengths[j]
+    def _zero_pad_overwrite(self, array):
+        """Sets array[i, j] == 0 for any i, j with self._seq_lengths[j] < i
         
         Args:
-            array3d: numpy.array of shape (M, N, D)
+            array: numpy.array of shape (M, N, ...)
         """
-        if self._curr_min_seq_length == self._curr_batch_seq_dim_length:
+        if self._curr_min_seq_length == self._curr_seq_length_dim_max:
             # optimization, nothing to do, return now
             return
-        for j in xrange(self._curr_num_sequences):
-            if self._seq_lengths[j] < self._curr_batch_seq_dim_length:
-                array3d[self._seq_lengths[j]:self._curr_batch_seq_dim_length, j] = 0.0
+        zero_pad_overwrite(array, self._curr_seq_length_dim_max, self._curr_num_sequences, self._seq_lengths)
+
+
+def validate_zero_padding(array_nd, max_seq_length, max_num_sequences, seq_lengths):
+    """Validates that array_nd[i, j] == 0 for any i, j with seq_lengths[j] < i
+
+    Note: depending on parameters, some elements at the end are not checked for 0-padding.
+
+    Args:
+        array_nd: numpy.array of shape (M, N) or in general (M, N, ...)
+        max_seq_length: maximum in dimension 0, <= M, checked up to max_seq_length, the rest are ignored
+        max_num_sequences: maximum in dimension 1, <=N, the rest are ignored
+        seq_lengths: 1-d array of lengths, elements after the lengths are checked for 0-padding
+    Raises:
+        AssertionError: when checked invariant does not hold
+    """
+    for j in xrange(max_num_sequences):
+        if seq_lengths[j] < max_seq_length:
+            assert np.all(array_nd[seq_lengths[j]:max_seq_length, j] == 0.0)
+
+
+def zero_pad_overwrite(array_nd, max_seq_length, max_num_sequences, seq_lengths):
+    """Sets array_nd[i, j] == 0 for any i, j with seq_lengths[j] < i
+
+    Note: depending on parameters, some elements at the end remain non-0-padded.
+
+    Args:
+        array_nd: numpy.array of shape (M, N) or in general (M, N, ...)
+        max_seq_length: maximum in dimension 0, <= M, 0-padded up to max_seq_length, the rest are ignored
+        max_num_sequences: maximum in dimension 1, <=N, the rest are ignored
+        seq_lengths: 1-d array of lengths, this function 0-pads elements after the lengths up to max_seq_length
+    """
+    for j in xrange(max_num_sequences):
+        if seq_lengths[j] < max_seq_length:
+            array_nd[seq_lengths[j]:max_seq_length, j].fill(0.0)
 
 
 class BatchSequencesLossNN(CoreNN):
+    """Encapsulates one or more NN layers where the output of the top layer is a scalar loss function.
 
-    def __init__(self, num_p, max_seq_length, batch_size, dtype):
+    The input is a batch of sequences, where each sequence can have a different length.
+
+    First dimension is time, second is sequence index.
+
+    It is allowed that this object is only the loss layer or also encapsulates further objects of type
+    BatchSequencesComponentNN.
+    """
+
+    def __init__(self, num_p, dtype):
         super(BatchSequencesLossNN, self).__init__(num_p, dtype)
-        self._max_seq_length = max_seq_length
-        self._max_num_sequences = batch_size
-        # self._curr_batch_seq_dim_length == x.shape[0] of current batch.
-        # It is allowed that no sequence in the batch has that length
-        self._curr_batch_seq_dim_length = 0
-        self._curr_num_sequences = 0
-        self._curr_min_seq_length = 0   # minimum sequence length in the current batch
-        self._curr_max_seq_length = 0   # maximum sequence length in the current batch
+        # when this object is a single scalar layer, the following 3 are needed for gradient checks, otherwise they
+        # are not necessary as they are part of the enclosed component BatchSequencesComponentNN objects.
         self._seq_lengths = None
-        self._x = None  # needed for gradient checks only really
-        self._y_true = None  # needed for gradient checks only really
+        self._x = None
+        self._y_true = None
 
     @abstractmethod
     def forward_backwards(self, x, y_true, seq_lengths):
         """ Performs one forward propagation and one back propagation using the current model.
 
+        The contract regarding values after the sequence length is same as BatchSequencesComponentNN.forward(..) and
+        BatchSequencesComponentNN.backwards(..)
+
+        It can't assume anything for values in y_true after end of each sequence. Method is allowed to overwrite them
+        to any value, which will be visible to the caller.
+
         Args:
-            x: N input sequences, each with M observations, numpy.array of shape (M, N, input_dimension)
-            seq_lengths: the lengths of each of N input sequences, numpy.array of shape (N, )
+            x: numpy.array of shape (maxT, N, ..)
+                N input sequences, each at most maxT observations
+            seq_lengths: numpy.array of type np.integer of shape (N, )
+                the lengths of the N input sequences
             y_true: target (true) values, numpy.array
-                usually of shape (M, N, ), but can be (N, output_dimension) or (output_dimension, )
+                for classification problems it is usually type np.integer and shape (maxT, N)
+                Cannot assume specific values after end of sequence! Can overwrite.
         Returns:
             loss: total loss over all valid observations, scalar
             gradient: gradient of the loss wrt the current parameters, numpy.array of shape (parameter_dimension, )
             delta_error: error vector from this layer, i.e. derivative w.r.to the inputs to this layer,
-                None if not-differentiable, numpy.array of shape (M, N, input_dimension)
+                None if not-differentiable, numpy.array of shape (maxT, N, ..) (or (N, maxT, ..))
         """
 
     def forward_backwards_grad_model(self, **kwargs):
@@ -413,26 +497,19 @@ class BatchSequencesLossNN(CoreNN):
         loss, _, delta_err = self.forward_backwards(self._x, self._y_true, self._seq_lengths)
         return loss, delta_err
 
-    def get_max_seq_length(self):
-        return self._max_seq_length
 
-    def get_max_batch_size(self):
-        return self._max_num_sequences
+def validate_x_and_lengths(x, max_seq_length, max_num_sequences, seq_lengths):
+    """Implementation-level code useful for several implementations operating on batched sequences.
 
-    def validate_zero_padding(self, array3d):
-        """ Verifies that it holds array3d[i, j, :] == 0 for any i, j with i > self._seq_lengths[j]
-        
-        Args:
-            array3d: numpy.array of shape (M, N, D)
-        Raises:
-            AssertionError: when checked invariant does not hold
-        """
-        if self._curr_min_seq_length == self._curr_batch_seq_dim_length:
-            # optimization, nothing to check, return now
-            return
-        for j in xrange(self._curr_num_sequences):
-            if self._seq_lengths[j] < self._curr_batch_seq_dim_length:
-                assert np.alltrue(np.equal(array3d[self._seq_lengths[j]:self._curr_batch_seq_dim_length, j], 0.0))
+    Validates that tensor x has dimensionality a subset of [max_seq_length, max_num_sequences, ...] and that the
+    sequence lengths passed fit in the dimensions of x
+    """
+    assert 2 <= x.ndim
+    assert x.shape[0] <= max_seq_length and x.shape[1] <= max_num_sequences
+    assert seq_lengths.shape == (x.shape[1],)
+    assert np.issubdtype(seq_lengths.dtype, np.integer)
+    assert 0 <= seq_lengths.min()
+    assert seq_lengths.max() <= x.shape[0]
 
 
 def glorot_init(shape):

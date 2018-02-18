@@ -122,20 +122,16 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         y = y[:, :-1]
         seq_lengths = seq_lengths[:-1]
 
-        # having only the corresponding x to be all 0s is not enough and should be detected as error
-        x[0:seq_length_sav, 1, :] = 0.0
+        # The second sequence has 0 length but its contents are not zero.
+        # Verify that this is detected when asserts_on == True
         with self.assertRaises(AssertionError):
             loss_and_layer.forward_backwards(x, y, seq_lengths)
 
-        # setting the corresponding x and y to be all 0s is accepted
-        y[0:seq_length_sav, 1, :] = 0.0
+        # Setting the corresponding x to be all 0s is now accepted.
+        # Verify that y beyond the sequence end is accepted and ignored.
+        x[0:seq_length_sav, 1, :] = 0.0
         _, _, delta_err = loss_and_layer.forward_backwards(x, y, seq_lengths)
         self.assertTrue(np.alltrue(np.equal(delta_err[:, 0, :], 0.0)))
-
-        # having only the corresponding y to be all 0s is not enough and should be detected as error
-        x[0:seq_length_sav, 1, :] = np.random.standard_normal((seq_length_sav, dim_x)).astype(dtype)
-        with self.assertRaises(AssertionError):
-            loss_and_layer.forward_backwards(x, y, seq_lengths)
 
     def test_batching_equivalence(self):
         """Verifies that a batched invocation of N sequences and N non-batched invocations of 1 sequence return the same

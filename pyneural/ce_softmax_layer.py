@@ -1,7 +1,10 @@
 import numpy as np
 
 from softmax import softmax_1d_opt, softmax_2d_opt, softmax_3d_opt
-from neural_base import LossNN, BatchSequencesLossNN, glorot_init
+from neural_base import (
+    LossNN, BatchSequencesLossNN, glorot_init,
+    validate_x_and_lengths, validate_zero_padding, zero_pad_overwrite
+)
 
 
 class CESoftmaxLayer(LossNN):
@@ -69,7 +72,8 @@ class CESoftmaxLayer(LossNN):
             assert x.ndim == 2 and x.shape[1] == self.dim_d
             assert x.dtype == self._dtype
             assert labels.shape == (x.shape[0],)
-            assert np.max(labels) < self.dim_k
+            assert np.issubdtype(labels.dtype, np.integer)
+            assert labels.max() < self.dim_k
 
         self._x, self._y_true = x, labels
 
@@ -254,6 +258,8 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
     Not necessarily faster than a loop over CESoftmaxLayer, which is surprising and needs further investigation.
     Specifically, it scales very poorly with max_seq_length.
 
+    Unfortunately duplicates a lot of BatchSequencesComponentNN functionality.
+
     In ce_softmax_layer_test.py it was found that it is slower(!) than CESoftmaxLayer
     for dim_k=500, max_seq_length=50, batch_size=20
     """
@@ -263,11 +269,25 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
         self.p_hat = None
         self.delta_err = None
         num_params = self.dim_k * self.dim_d + self.dim_k
-        super(CESoftmaxLayerBatch, self).__init__(num_params, max_seq_length, batch_size, dtype)
+        super(CESoftmaxLayerBatch, self).__init__(num_params, dtype)
         self.w_hy = self.b = None
         self.dw_hy = self.db = None
         self.kxd_array = np.empty((self.dim_k, self.dim_d), dtype=self._dtype)
         self.asserts_on = asserts_on
+        self._max_seq_length = max_seq_length  # maximum length of dimension 0 (time) of x for all batches
+        self._max_num_sequences = batch_size  # maximum length of dimension 1 (sequence) of x for all batches
+        if self._max_seq_length <= 0:
+            raise ValueError("max_seq_length must be positive integer, supplied %s" % str(max_seq_length))
+        if self._max_num_sequences <= 0:
+            raise ValueError("batch_size must be positive integer, supplied %s" % str(batch_size))
+        # minimum and max lengths of valid values in dimension 0 (time) input x
+        self._curr_min_seq_length = 0
+        self._curr_max_seq_length = 0
+        self._curr_seq_length_dim_max = 0  # current input x.shape[0]
+        # It is allowed that no sequence in the batch has length equal to the maximum dimension, i.e. it is allowed
+        # that _curr_max_seq_length < _curr_seq_length_dim_max
+        self._curr_num_sequences = 0  # current input x.shape[1]
+        self._seq_lengths = None  # 1-d np.array
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -282,25 +302,31 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
         np.copyto(self.w_hy, glorot_init((self.dim_k, self.dim_d)).astype(self._dtype))
         self.b.fill(0.0)
 
+    def get_max_batch_size(self):
+        return self._max_num_sequences
+
+    def get_max_seq_length(self):
+        return self._max_seq_length
+
     def forward(self, x, labels, seq_lengths):
         if self.asserts_on:
+            validate_x_and_lengths(x, x.shape[0], x.shape[1], seq_lengths)
             assert x.ndim == 3
-            assert 0 < x.shape[0] <= self._max_seq_length
-            assert x.shape[1] <= self._max_num_sequences
             assert x.shape[2] == self.dim_d
-            assert seq_lengths.shape[0] == x.shape[1]
-            assert seq_lengths.dtype == np.int
-            assert np.max(seq_lengths) <= x.shape[0]
             assert labels.shape == (x.shape[0], x.shape[1])
+            assert np.issubdtype(labels.dtype, np.integer)
 
+        self._curr_seq_length_dim_max = x.shape[0]
         self._curr_num_sequences = x.shape[1]
-        self._curr_batch_seq_dim_length = x.shape[0]
 
         self._x, self._y_true, self._seq_lengths = x, labels, seq_lengths
 
         if self.asserts_on:
-            self.validate_zero_padding(x)
-            self.validate_zero_padding(labels)
+            validate_zero_padding(x, self._curr_seq_length_dim_max, self._curr_num_sequences, seq_lengths)
+
+        # There is no guarantee that elements in y_true after the sequence lengths are 0 and we MUST ignore them, so
+        # zero out their contribution to error. It is allowed to change labels in-place.
+        zero_pad_overwrite(labels, self._curr_seq_length_dim_max, self._curr_num_sequences, seq_lengths)
 
         # ((K, D) x (D, N))^T = (N, K)
         # without batching: (N, D) x (D, K) = (N, K)
@@ -310,12 +336,12 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
         y_fwd = np.dot(self._x, self.w_hy.T) + self.b
         # y_fwd may contain invalid out-of-sequences elements that will be ignored
 
-        curr_min_seq_length = self._curr_min_seq_length = np.amin(self._seq_lengths)
-        self._curr_max_seq_length = np.amax(self._seq_lengths)
+        curr_min_seq_length = self._curr_min_seq_length = self._seq_lengths.min()
+        self._curr_max_seq_length = self._seq_lengths.max()
 
         # at back propagation, we rely on elements of the p_hat array outside of valid sequences to be 0 and
         # for its 1st dim to be equal to x.shape[0]
-        self.p_hat = np.zeros((self._curr_batch_seq_dim_length, self._curr_num_sequences, self.dim_k),
+        self.p_hat = np.zeros((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_k),
                               dtype=self._dtype)
         loss_v = np.zeros((self._curr_max_seq_length, self._curr_num_sequences), dtype=self._dtype)
 
