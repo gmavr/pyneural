@@ -4,12 +4,9 @@ import numpy as np
 
 import gradient_check_test_shared as gcs
 import pyneural.ce_crf_layer as ce_crf
-import pyneural.neural_layer as nl
-import pyneural.rnn_layer as rl
-from pyneural.neural_base import LossNN
 
 
-def create_random_data(loss_nn, num_samples, dim_h, dim_k):
+def _create_random_data(loss_nn, num_samples, dim_h, dim_k):
     num_params = loss_nn.get_num_p()
     dtype = loss_nn.get_dtype()
 
@@ -21,80 +18,6 @@ def create_random_data(loss_nn, num_samples, dim_h, dim_k):
     prev_label = np.random.randint(0, dim_k)
 
     return params, data, labels, prev_label
-
-
-class CRFandRRN(LossNN):
-    def __init__(self, dim_d, dim_h, dim_k, max_seq_length, dtype):
-        self.dim_d, self.dim_h, self.dim_k = dim_d, dim_h, dim_k
-        self.ce_crf = ce_crf.CRFLayer(self.dim_k, max_seq_length, dtype)
-        self.nl = nl.NeuralLayer(self.dim_h, self.dim_k, dtype, activation=None)
-        self.rnn = rl.RnnLayer(self.dim_d, self.dim_h, max_seq_length, dtype)
-        num_p = self.ce_crf.get_num_p() + self.nl.get_num_p() + self.rnn.get_num_p()
-        super(CRFandRRN, self).__init__(num_p, dtype)
-        self.delta_error = None
-
-    def get_display_dict(self):
-        d = self._init_display_dict()
-        d['ce_crf'] = self.ce_crf.get_display_dict()
-        d['nl'] = self.nl.get_display_dict()
-        d['rnn'] = self.rnn.get_display_dict()
-        return d
-
-    def set_prev_label(self, prev_label):
-        self.ce_crf.set_prev_label(prev_label)
-
-    def set_init_h(self, init_h):
-        self.rnn.set_init_h(init_h)
-
-    def forward_backwards(self, data, labels):
-        self._x, self._y_true = data, labels
-
-        hs = self.rnn.forward(data)
-        hls = self.nl.forward(hs)
-        loss, grad, delta_err_ce_crf = self.ce_crf.forward_backwards(hls, labels)
-        delta_err_nl = self.nl.backwards(delta_err_ce_crf)
-        self.delta_error = self.rnn.backwards(delta_err_nl)
-
-        return loss, self.get_gradient(), self.delta_error
-
-    def forward_backwards_grad_model(self, **kwargs):
-        self.set_init_h(kwargs["h_init"])
-        return super(CRFandRRN, self).forward_backwards_grad_model()
-
-    def forward_backwards_grad_input(self, **kwargs):
-        # set the (same) init, because after each forward propagation it is overwritten
-        self.set_init_h(kwargs["h_init"])
-        return super(CRFandRRN, self).forward_backwards_grad_input()
-
-    def _set_model_references_in_place(self):
-        params = self._model
-        ofs1 = 0
-        ofs2 = self.ce_crf.get_num_p()
-        self.ce_crf.set_model_storage(params[ofs1:ofs2])
-        ofs1 = ofs2
-        ofs2 += self.nl.get_num_p()
-        self.nl.set_model_storage(params[ofs1:ofs2])
-        ofs1 = ofs2
-        ofs2 += self.rnn.get_num_p()
-        self.rnn.set_model_storage(params[ofs1:ofs2])
-
-    def _set_gradient_references_in_place(self):
-        grad = self._grad
-        ofs1 = 0
-        ofs2 = self.ce_crf.get_num_p()
-        self.ce_crf.set_gradient_storage(grad[ofs1:ofs2])
-        ofs1 = ofs2
-        ofs2 += self.nl.get_num_p()
-        self.nl.set_gradient_storage(grad[ofs1:ofs2])
-        ofs1 = ofs2
-        ofs2 += self.rnn.get_num_p()
-        self.rnn.set_gradient_storage(grad[ofs1:ofs2])
-
-    def get_built_model(self):
-        return np.concatenate((self.ce_crf.get_model(), self.nl.get_model(), self.rnn.get_model()))
-
-    def get_built_gradient(self):
-        return np.concatenate((self.ce_crf.get_gradient(), self.nl.get_gradient(), self.rnn.get_gradient()))
 
 
 class CRFLayerTest(gcs.GradientCheckTestShared):
@@ -164,7 +87,7 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
 
         crf_layer = ce_crf.CRFLayer(dim_k, num_samples, dtype)
 
-        model, data, _, prev_label = create_random_data(crf_layer, num_samples, dim_k, dim_k)
+        model, data, _, prev_label = _create_random_data(crf_layer, num_samples, dim_k, dim_k)
 
         crf_layer.init_parameters_storage(model)
         crf_layer.set_prev_label(prev_label)
@@ -210,7 +133,7 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
 
         crf_layer = ce_crf.CRFLayer(dim_k, num_samples + 1, dtype)
 
-        model, data, labels, prev_label = create_random_data(crf_layer, num_samples, dim_k, dim_k)
+        model, data, labels, prev_label = _create_random_data(crf_layer, num_samples, dim_k, dim_k)
 
         crf_layer.init_parameters_storage(model)
         crf_layer.set_prev_label(prev_label)
@@ -228,30 +151,13 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
 
         crf_layer = ce_crf.CRFLayer(dim_k, num_samples + 2, dtype)
 
-        model, data, labels, prev_label = create_random_data(crf_layer, num_samples, dim_k, dim_k)
+        model, data, labels, prev_label = _create_random_data(crf_layer, num_samples, dim_k, dim_k)
 
         crf_layer.init_parameters_storage(model)
         crf_layer.set_prev_label(prev_label)
 
         self.do_param_gradient_check(crf_layer, data, labels, tolerance)
         self.do_input_gradient_check(crf_layer, data, labels, tolerance)
-
-    def test_crf_layer_rnn_gradients(self):
-        num_samples = 20
-        dim_d, dim_h, dim_k = 8, 12, 5
-
-        dtype, tolerance = np.float64, 1e-9
-
-        loss_nn = CRFandRRN(dim_d, dim_h, dim_k, num_samples, dtype)
-
-        model, data, labels, prev_label = create_random_data(loss_nn, num_samples, dim_d, dim_k)
-        h_init = 0.01 * np.random.standard_normal(dim_h).astype(dtype)
-
-        loss_nn.init_parameters_storage(model=model)
-        loss_nn.set_prev_label(prev_label)
-
-        self.do_param_gradient_check(loss_nn, data, labels, tolerance, h_init)
-        self.do_input_gradient_check(loss_nn, data, labels, tolerance, h_init)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from pyneural.ce_l2_loss import BatchSequencesWithL2Loss
 from pyneural.neural_base import BatchSequencesComponentNN
 
 
-def create_random_params(rnn_batch):
+def _create_random_params(rnn_batch):
     assert isinstance(rnn_batch, rbl.RnnBatchLayer)
 
     batch_size = rnn_batch.get_max_batch_size()
@@ -48,7 +48,7 @@ def create_random_data_non_full_batch(rnn_batch):
     return x, y_true, seq_lengths
 
 
-def create_random_data_full_batch(rnn_batch, num_batches):
+def create_random_data_full_batch(rnn_batch):
     assert isinstance(rnn_batch, BatchSequencesComponentNN)
 
     batch_size = rnn_batch.get_max_batch_size()
@@ -56,11 +56,11 @@ def create_random_data_full_batch(rnn_batch, num_batches):
     dtype = rnn_batch.get_dtype()
     dim_d, dim_h = rnn_batch.get_dimensions()
 
-    seq_lengths = np.empty(num_batches * batch_size, dtype=np.int)
+    seq_lengths = np.empty(batch_size, dtype=np.int)
     seq_lengths.fill(max_seq_length)
 
-    x = np.random.standard_normal((max_seq_length, num_batches * batch_size, dim_d)).astype(dtype)
-    y_true = np.random.standard_normal((max_seq_length, num_batches * batch_size, dim_h)).astype(dtype)
+    x = np.random.standard_normal((max_seq_length, batch_size, dim_d)).astype(dtype)
+    y_true = np.random.standard_normal((max_seq_length, batch_size, dim_h)).astype(dtype)
 
     return x, y_true, seq_lengths
 
@@ -77,7 +77,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         loss_and_layer = BatchSequencesWithL2Loss(batch_layer)
 
         np.random.seed(seed=47)
-        params, h_init = create_random_params(batch_layer)
+        params, h_init = _create_random_params(batch_layer)
 
         x, y, seq_lengths = create_random_data_non_full_batch(batch_layer)
         # make sure that we are testing the case of a 0 length sequence
@@ -92,7 +92,8 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         self.do_param_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
 
-        x, y, seq_lengths = create_random_data_full_batch(batch_layer, 1)
+        # input gradient check possible only for full batch of data
+        x, y, seq_lengths = create_random_data_full_batch(batch_layer)
         self.do_input_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
         self.do_param_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
 
@@ -106,7 +107,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         loss_and_layer = BatchSequencesWithL2Loss(batch_layer)
 
         np.random.seed(seed=47)
-        params, h_init = create_random_params(batch_layer)
+        params, h_init = _create_random_params(batch_layer)
 
         loss_and_layer.init_parameters_storage(params)
         batch_layer.set_init_h(h_init)

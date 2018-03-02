@@ -4,7 +4,8 @@ import numpy as np
 
 import gradient_check_test_shared as gcs
 import pyneural.gru_layer as gru
-from pyneural.ce_l2_loss import LayerWithL2Loss
+from pyneural.ce_l2_loss import LayerWithL2Loss, BatchSequencesWithL2Loss
+from rnn_batch_layer_test import create_random_data_non_full_batch, create_random_data_full_batch
 
 
 class TestGru(gcs.GradientCheckTestShared):
@@ -151,6 +152,36 @@ class TestGru(gcs.GradientCheckTestShared):
 
         # verify accumulated gradient
         self.assertTrue(np.allclose(accum_grad, rnn_batch_layer.get_gradient(), rtol=tolerance, atol=tolerance))
+
+    def test_gradients_batched(self):
+        dim_d, dim_h = 4, 3
+        max_batch_size = 4
+        max_seq_length = 6
+        dtype, tolerance = np.float64, 5e-8
+
+        rnn_batch_layer = gru.GruBatchLayer(dim_d, dim_h, max_seq_length, max_batch_size, dtype)
+        loss_and_layer = BatchSequencesWithL2Loss(rnn_batch_layer)
+
+        np.random.seed(seed=85)
+        model = 0.1 * np.random.standard_normal((rnn_batch_layer.get_num_p(),)).astype(dtype)
+        h_init = 0.01 * np.random.standard_normal((max_batch_size, dim_h)).astype(dtype)
+
+        x, y, seq_lengths = create_random_data_non_full_batch(rnn_batch_layer)
+        # make sure that we are testing the case of a 0 length sequence
+        assert seq_lengths[0] == 0
+
+        # shrink data set to contain fewer sequences than the batch size set at initialization
+        x = x[:, :-1]
+        y = y[:, :-1]
+        seq_lengths = seq_lengths[:-1]
+
+        loss_and_layer.init_parameters_storage(model)
+
+        self.do_param_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
+
+        # input gradient check possible only for full batch of data
+        x, y, seq_lengths = create_random_data_full_batch(rnn_batch_layer)
+        self.do_input_batched_gradient_check(loss_and_layer, x, y, seq_lengths, tolerance, h_init)
 
 
 if __name__ == "__main__":

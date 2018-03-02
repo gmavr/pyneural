@@ -199,8 +199,8 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
 
     Uses implementation inheritance to avoid boilerplate from composition and forwarding.
     """
-    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation="tanh", asserts_on=True):
-        super(TrailingRnnBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, batch_size,
+    def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, activation="tanh", asserts_on=True):
+        super(TrailingRnnBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, max_batch_size,
                                                     dtype=dtype, activation=activation, bptt_steps=max_seq_length,
                                                     asserts_on=asserts_on)
         self.y = None
@@ -245,8 +245,8 @@ class TrailingGruBatchLayer(GruBatchLayer):
     This is essentially an identical wrapper as TrailingRnnBatchLayer.
     """
 
-    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True):
-        super(TrailingGruBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on)
+    def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, asserts_on=True):
+        super(TrailingGruBatchLayer, self).__init__(dim_d, dim_h, max_seq_length, max_batch_size, dtype, asserts_on)
         self.y = None
 
     def get_max_seq_length_out(self):

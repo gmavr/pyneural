@@ -9,11 +9,11 @@ class RnnBatchLayer(BatchSequencesComponentNN):
     
     First dimension is time, the second dimension is batch (sequence index).
     """
-    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation='tanh', bptt_steps=None,
+    def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, activation='tanh', bptt_steps=None,
                  grad_clip_thres=None, asserts_on=True, assert_upper_delta_padded=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_params = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
-        super(RnnBatchLayer, self).__init__(num_params, max_seq_length, batch_size, dtype)
+        super(RnnBatchLayer, self).__init__(num_params, max_seq_length, max_batch_size, dtype)
         # self._curr_seq_length_dim_max == x.shape[0] of last batch (last x passed in forward_batch(self))
         self._curr_seq_length_dim_max = 0  # must be 0 before the first iteration
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
@@ -172,13 +172,13 @@ class RnnBatchLayer(BatchSequencesComponentNN):
                 self.__back_propagation_loop(delta_upper, 0, curr_max_seq_length % self.bptt_steps)
 
         if self.asserts_on:
-            self._validate_zero_padding(dh_raw)
+            self._validate_zero_padding(dh_raw, max_seq_length=curr_max_seq_length)
 
         # reduce_sum (T, B, H) to (H, )
         np.sum(dh_raw, axis=(0, 1), out=self.db)
 
-        # we can't easily sum over the T, B dimensions using matrix multiplications, so we use a loop for the first
-        # dimension only (time)
+        # it is not possible to vectorize over the T dimension using matrix multiplications or another way, so we use a
+        # loop over the T dimension
         self.dw_xh.fill(0.0)
         self.dw_hh.fill(0.0)
         hxd_array, hxh_array = self.hxd_array, self.hxh_array  # this seems to make a difference in run-time
@@ -280,12 +280,12 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
     RnnBatchLayer is faster. Only use this version if transposing would be necessary and the total cost is more.
     """
 
-    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, activation='tanh', bptt_steps=None,
+    def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, activation='tanh', bptt_steps=None,
                  asserts_on=True):
         self.dim_d = dim_d
         self.dim_h = dim_h
         num_params = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
-        super(RnnBatchLayerTime2nd, self).__init__(num_params, max_seq_length, batch_size, dtype)
+        super(RnnBatchLayerTime2nd, self).__init__(num_params, max_seq_length, max_batch_size, dtype)
         self._curr_seq_length_dim_max = 0  # must be 0 before the first iteration
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
         assert self.bptt_steps <= self._max_seq_length

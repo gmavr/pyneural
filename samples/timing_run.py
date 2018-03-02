@@ -94,33 +94,34 @@ def softmax_layer_time():
     assert(np.allclose(delta_err, delta_err_batch, rtol=rtol, atol=atol))
 
 
-def create_random_data_em_batch(em_object, max_seq_length, batch_size):
+def create_random_data_em_batch(em_object, max_seq_length, batch_size, int_dtype):
     """
     Args:
         em_object: EmbeddingLayerBatch object
         max_seq_length: maximum sequence length (first dimension)
         batch_size: number of sequences in batch (second dimension)
+        int_dtype: numpy integer type for indices and sequence lengths
 
     Returns:
-        x: (T, B) np.int
-        delta_err: (T, B, D)
-        seq_lengths: (B, ) np.int
+        x: (T, B) int_dtype
+        delta_err: (T, B, D) type deduced from em_object
+        seq_lengths: (B, ) int_dtype
     """
     dtype = em_object.get_dtype()
     dim_k, dim_d = em_object.dim_k, em_object.dim_d
 
-    x = np.zeros((max_seq_length, batch_size), dtype=np.int)
+    x = np.zeros((max_seq_length, batch_size), dtype=int_dtype)
     delta_err = np.zeros((max_seq_length, batch_size, dim_d), dtype=dtype)
 
     # have few repeated items in each sequence (was needed for removed experiment)
     num_unique = min(dim_k, 10)
     assert max_seq_length >= 5
-    seq_lengths = np.random.randint(max_seq_length - 5, max_seq_length, batch_size)
+    seq_lengths = np.random.randint(max_seq_length - 5, max_seq_length, batch_size, dtype=int_dtype)
     for j in xrange(batch_size):
         seq_length = seq_lengths[j]
         if seq_length > 0:
             indices = np.random.randint(0, dim_k, num_unique)
-            x[0:seq_length, j] = indices[np.random.randint(0, num_unique, seq_length)]
+            x[0:seq_length, j] = indices[np.random.randint(0, num_unique, seq_length, dtype=int_dtype)]
             delta_err[0:seq_length, j, :] = 0.01 * np.random.standard_normal((seq_length, dim_d)).astype(dtype)
 
     return x, delta_err, seq_lengths
@@ -134,22 +135,22 @@ def embedding_time():
     dtype = np.float32
 
     np.random.seed(seed=47)
-    model = 0.1 * np.random.standard_normal(dim_k *dim_d).astype(dtype)
+    model = np.random.uniform(-0.2, 0.2, dim_k * dim_d).astype(dtype)
 
-    em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
+    em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype, asserts_on=False)
     em_obj.init_parameters_storage(model=model)
 
-    em_obj_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype)
+    em_obj_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype, asserts_on=False)
     em_obj_batch.init_parameters_storage(model=model)
 
     # batches are constructed close to full
-    # x: (T, B) np.int  delta_err: (T, B, D) seq_lengths: (B, ) np.int
-    x, delta_err, seq_lengths = create_random_data_em_batch(em_obj_batch, max_seq_length, batch_size)
+    # x: (T, B) np.int32  delta_err: (T, B, D) seq_lengths: (B, ) np.int32
+    x, delta_err, seq_lengths = create_random_data_em_batch(em_obj_batch, max_seq_length, batch_size, np.int32)
 
     x_t = np.transpose(x)
-    delta_err_t = np.transpose(delta_err)
+    delta_err_t = np.transpose(delta_err, axes=[1, 0, 2])
 
-    num_iters = 5
+    num_iters = 10
 
     start_time = time.time()
     for k in xrange(num_iters):
@@ -168,9 +169,6 @@ def embedding_time():
     print("total time elapsed for %d batched invocations of %d sequences: %.4g sec" %
           (num_iters, batch_size, time_elapsed))
 
-    time_elapsed = (time.time() - start_time)
-    print("time elapsed: %.4g sec" % time_elapsed)
-
 
 def rnn_time():
     """
@@ -185,7 +183,7 @@ def rnn_time():
     max_seq_length = 20
     bptt_steps = max_seq_length
     num_max_seq_blocks = 50
-    dtype = np.float64
+    dtype = np.float32
 
     rnn_layer = rl.RnnLayer(dim_d, dim_h, max_seq_length, dtype, bptt_steps=bptt_steps)
     rnn_batch_layer_t1 = rbl.RnnBatchLayerTime2nd(dim_d, dim_h, max_seq_length, batch_size, dtype,
@@ -276,7 +274,7 @@ def gru_fwd_versions_time():
     print("Comparing GRU forward versions")
 
     dim_d, dim_h, max_seq_length = 500, 200, 100
-    dtype = np.float64
+    dtype = np.float32
 
     gru_obj = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
 
@@ -319,7 +317,7 @@ def gru_time():
     batch_size = 20
     max_seq_length = 20
     num_max_seq_blocks = 50
-    dtype = np.float64
+    dtype = np.float32
 
     rnn_layer = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype, asserts_on=True)
     rnn_batch_layer = gru.GruBatchLayer(dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True)
@@ -393,5 +391,5 @@ if __name__ == "__main__":
     softmax_layer_time()
     embedding_time()
     rnn_time()
-    gru_time()
     gru_fwd_versions_time()
+    gru_time()

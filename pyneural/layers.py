@@ -1,6 +1,7 @@
 import numpy as np
 
 import bidir_rnn_layer
+import ce_crf_layer as ce_crf
 import ce_softmax_layer as csl
 import gru_layer as gru
 import rnn_layer as rl
@@ -646,3 +647,77 @@ class EmbeddingBidirRnnSoftMax(LossNN):
 
     def get_built_gradient(self):
         return np.concatenate((self.word_em.get_gradient(), self.bi_rnn.get_gradient(), self.ce_sm.get_gradient()))
+
+
+class CRFandRRN(LossNN):
+    def __init__(self, dim_d, dim_h, dim_k, max_seq_length, dtype):
+        self.dim_d, self.dim_h, self.dim_k = dim_d, dim_h, dim_k
+        self.ce_crf = ce_crf.CRFLayer(self.dim_k, max_seq_length, dtype)
+        self.nl = NeuralLayer(self.dim_h, self.dim_k, dtype, activation=None)
+        self.rnn = rl.RnnLayer(self.dim_d, self.dim_h, max_seq_length, dtype)
+        num_p = self.ce_crf.get_num_p() + self.nl.get_num_p() + self.rnn.get_num_p()
+        super(CRFandRRN, self).__init__(num_p, dtype)
+        self.delta_error = None
+
+    def get_display_dict(self):
+        d = self._init_display_dict()
+        d['ce_crf'] = self.ce_crf.get_display_dict()
+        d['nl'] = self.nl.get_display_dict()
+        d['rnn'] = self.rnn.get_display_dict()
+        return d
+
+    def set_prev_label(self, prev_label):
+        self.ce_crf.set_prev_label(prev_label)
+
+    def set_init_h(self, init_h):
+        self.rnn.set_init_h(init_h)
+
+    def forward_backwards(self, data, labels):
+        self._x, self._y_true = data, labels
+
+        hs = self.rnn.forward(data)
+        hls = self.nl.forward(hs)
+        loss, grad, delta_err_ce_crf = self.ce_crf.forward_backwards(hls, labels)
+        delta_err_nl = self.nl.backwards(delta_err_ce_crf)
+        self.delta_error = self.rnn.backwards(delta_err_nl)
+
+        return loss, self.get_gradient(), self.delta_error
+
+    def forward_backwards_grad_model(self, **kwargs):
+        self.set_init_h(kwargs["h_init"])
+        return super(CRFandRRN, self).forward_backwards_grad_model()
+
+    def forward_backwards_grad_input(self, **kwargs):
+        # set the (same) init, because after each forward propagation it is overwritten
+        self.set_init_h(kwargs["h_init"])
+        return super(CRFandRRN, self).forward_backwards_grad_input()
+
+    def _set_model_references_in_place(self):
+        params = self._model
+        ofs1 = 0
+        ofs2 = self.ce_crf.get_num_p()
+        self.ce_crf.set_model_storage(params[ofs1:ofs2])
+        ofs1 = ofs2
+        ofs2 += self.nl.get_num_p()
+        self.nl.set_model_storage(params[ofs1:ofs2])
+        ofs1 = ofs2
+        ofs2 += self.rnn.get_num_p()
+        self.rnn.set_model_storage(params[ofs1:ofs2])
+
+    def _set_gradient_references_in_place(self):
+        grad = self._grad
+        ofs1 = 0
+        ofs2 = self.ce_crf.get_num_p()
+        self.ce_crf.set_gradient_storage(grad[ofs1:ofs2])
+        ofs1 = ofs2
+        ofs2 += self.nl.get_num_p()
+        self.nl.set_gradient_storage(grad[ofs1:ofs2])
+        ofs1 = ofs2
+        ofs2 += self.rnn.get_num_p()
+        self.rnn.set_gradient_storage(grad[ofs1:ofs2])
+
+    def get_built_model(self):
+        return np.concatenate((self.ce_crf.get_model(), self.nl.get_model(), self.rnn.get_model()))
+
+    def get_built_gradient(self):
+        return np.concatenate((self.ce_crf.get_gradient(), self.nl.get_gradient(), self.rnn.get_gradient()))

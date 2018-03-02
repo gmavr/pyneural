@@ -80,26 +80,40 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         np.random.seed(seed=47)
         em_obj.model_normal_init(0.1)
 
+        em_obj_py = em.EmbeddingLayerPy(dim_k, dim_d, dtype)
+        em_obj_py.init_parameters_storage(model=em_obj.get_model())
+
         em_obj_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype)
         em_obj_batch.init_parameters_storage(np.copy(em_obj.get_model()))
+        assert max_seq_length * batch_size < em_obj_batch.dk_threshold  # assert gradient selective overwrite
+
+        em_obj_batch_py = em.EmbeddingLayerBatchPy(dim_k, dim_d, max_seq_length, batch_size, dtype)
+        em_obj_batch_py.init_parameters_storage(np.copy(em_obj.get_model()))
 
         x, _, delta_upper, seq_lengths = create_random_data_batch(em_obj_batch, max_seq_length, batch_size, int_dtype)
 
         out = np.empty((max_seq_length, batch_size, dim_d), dtype=dtype)
-        for i in range(batch_size):
-            out[range(0, seq_lengths[i]), i] = em_obj.forward(x[range(0, seq_lengths[i]), i])
+        out_py = np.copy(out)
+        for i in xrange(batch_size):
+            out[0:seq_lengths[i], i] = em_obj.forward(x[0:seq_lengths[i], i])
+            out_py[0:seq_lengths[i], i] = em_obj_py.forward(x[0:seq_lengths[i], i])
+            self.assertTrue(np.alltrue(np.equal(out, out_py)))
 
         out_batch = em_obj_batch.forward(x, seq_lengths)
+        out_batch_py = em_obj_batch_py.forward(x, seq_lengths)
 
-        for i in range(batch_size):
+        for i in xrange(batch_size):
             seq_length = seq_lengths[i]
             if seq_length != 0:
                 # check that the single sequence and the batch version return the same
                 self.assertTrue(np.alltrue(np.equal(out[0:seq_length, i], out_batch[0:seq_length, i])))
+                self.assertTrue(np.alltrue(np.equal(out[0:seq_length, i], out_batch_py[0:seq_length, i])))
             # check 0-padding
             self.assertTrue(np.alltrue(np.equal(out_batch[seq_length:max_seq_length, i], 0.0)))
+            self.assertTrue(np.alltrue(np.equal(out_batch_py[seq_length:max_seq_length, i], 0.0)))
 
         em_obj_batch.backwards(delta_upper)
+        em_obj_batch_py.backwards(delta_upper)
 
         accum_grad = np.zeros(em_obj.get_num_p(), dtype=dtype)
         for i in xrange(batch_size):
@@ -110,6 +124,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
             accum_grad += em_obj.get_gradient()
 
         self.assertTrue(np.allclose(accum_grad, em_obj_batch.get_gradient(), rtol=tolerance, atol=tolerance))
+        self.assertTrue(np.allclose(accum_grad, em_obj_batch_py.get_gradient(), rtol=tolerance, atol=tolerance))
         self.assertTrue(np.alltrue(np.equal(em_obj_batch.get_model(), em_obj_batch.get_built_model())))
         self.assertTrue(np.alltrue(np.equal(em_obj_batch.get_gradient(), em_obj_batch.get_built_gradient())))
 
@@ -119,10 +134,10 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         """
         num_samples = 10
         dim_k, dim_d = 15, 20
-        dtype, tolerance, int_dtype = np.float64, 1e-12, np.int8
+        dtype, tolerance, int_dtype = np.float64, 1e-12, np.uint8
 
         em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
-        assert num_samples < em_obj.dk_threshold
+        assert num_samples < em_obj.dk_threshold  # assert gradient selective overwrite
 
         loss_nn = ce_l2_loss.LayerWithL2Loss(em_obj)
 
@@ -147,7 +162,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         dtype, tolerance, int_dtype = np.float32, 1e-4, np.uint8
 
         em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
-        assert num_samples > em_obj.dk_threshold
+        assert num_samples > em_obj.dk_threshold  # assert gradient full overwrite
 
         loss_nn = ce_l2_loss.LayerWithL2Loss(em_obj)
 
@@ -164,9 +179,10 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         dim_k, dim_d = 60, 8
         # max_seq_length, batch_size = 30, 40
         # dim_k, dim_d = 100, 50
-        dtype, tolerance, int_dtype = np.float64, 1e-10, np.uint32
+        dtype, tolerance, int_dtype = np.float64, 1e-10, np.int32
 
         em_obj_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype, asserts_on=True)
+        assert max_seq_length * batch_size < em_obj_batch.dk_threshold  # assert gradient selective overwrite
         loss_and_layer = ce_l2_loss.BatchSequencesWithL2Loss(em_obj_batch, asserts_on=True)
         loss_and_layer.init_parameters_storage()
 
@@ -191,7 +207,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
 
         np.random.seed(seed=47)
         delta_err = np.random.standard_normal((num_samples, dim_d)).astype(dtype)
-        x = np.array([1, 0, 1, 19, 8], dtype=np.int8)
+        x = np.array([1, 0, 1, 19, 8], dtype=np.uint8)
 
         em_layer = em.EmbeddingLayer(dim_k, dim_d, dtype)
         em_layer.init_parameters_storage()

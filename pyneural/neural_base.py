@@ -2,6 +2,8 @@ from abc import ABCMeta, abstractmethod
 
 import numpy as np
 
+import misc_cy
+
 
 class CoreNN(object):
     __metaclass__ = ABCMeta
@@ -276,21 +278,21 @@ class BatchSequencesComponentNN(CoreNN):
     First dimension is time, second is sequence index.
     """
 
-    def __init__(self, num_p, max_seq_length, batch_size, dtype):
+    def __init__(self, num_p, max_seq_length, max_batch_size, dtype):
         """
         Args:
             num_p: model dimensionality
             max_seq_length: maximum possible length of a sequence in any batch, i.e. upper limit on x.shape[0]
-            batch_size: maximum possible number of sequences in any batch, i.e. upper limit on x.shape[1]
+            max_batch_size: maximum possible number of sequences in any batch, i.e. upper limit on x.shape[1]
             dtype: floating arithmetic type (np.float32 or np.float64)
         """
         super(BatchSequencesComponentNN, self).__init__(num_p, dtype)
         self._max_seq_length = max_seq_length  # maximum length of dimension 0 (time) of x for all batches
-        self._max_num_sequences = batch_size  # maximum length of dimension 1 (sequence) of x for all batches
+        self._max_num_sequences = max_batch_size  # maximum length of dimension 1 (sequence) of x for all batches
         if self._max_seq_length <= 0:
             raise ValueError("max_seq_length must be positive integer, supplied %s" % str(max_seq_length))
         if self._max_num_sequences <= 0:
-            raise ValueError("batch_size must be positive integer, supplied %s" % str(batch_size))
+            raise ValueError("max_batch_size must be positive integer, supplied %s" % str(max_batch_size))
         # minimum and max lengths of valid values in dimension 0 (time) input x
         self._curr_min_seq_length = 0
         self._curr_max_seq_length = 0
@@ -306,9 +308,9 @@ class BatchSequencesComponentNN(CoreNN):
         
         Retains reference to passed input data matrix and assumes that it will NOT be changed externally until the next
         invocation of this method.
-        The values of the inputs after the end of each sequence length are required to be all 0.0 and this method can
+        The values of the inputs after the end of each sequence length are required to be all 0.0 or 0. This method may
         rely on that.
-        The values of the outputs after the end of each sequence length are produced as all 0.0.
+        The values of the outputs after the end of each sequence length are produced as all 0.0 or 0.
         (This design decision regarding 0-padding is because all implementations in practice internally require them to
         be 0 and if not they would both have to check if 0 and set to 0.)
         It is allowed that all sequences in the batch are shorter than maxT.
@@ -362,24 +364,29 @@ class BatchSequencesComponentNN(CoreNN):
         return self._seq_lengths
 
     def _set_lengths(self, x, seq_lengths):
+        assert x.shape[1] == seq_lengths.shape[0]  # matrix must be provided trimmed
         self._curr_num_sequences = x.shape[1]
         self._curr_seq_length_dim_max = x.shape[0]
         self._seq_lengths = seq_lengths
         self._curr_min_seq_length = self._seq_lengths.min()
         self._curr_max_seq_length = self._seq_lengths.max()
 
-    def _validate_zero_padding(self, array):
+    def _validate_zero_padding(self, array, max_seq_length=None):
         """Validates that array[i, j] == 0 for any i, j with seq_lengths[j] < i
         
         Args:
             array: numpy.array of shape (M, N, ...)
+            max_seq_length: integer, maximum time to check up to
+                if None, then self._curr_seq_length_dim_max
         Raises:
             AssertionError: when checked invariant does not hold
         """
-        if self._curr_min_seq_length == self._curr_seq_length_dim_max:
+        if max_seq_length is None:
+            max_seq_length = self._curr_seq_length_dim_max
+        if self._curr_min_seq_length == max_seq_length:
             # optimization, nothing to check, return now
             return
-        validate_zero_padding(array, self._curr_seq_length_dim_max, self._curr_num_sequences, self._seq_lengths)
+        validate_zero_padding(array, max_seq_length, self._curr_num_sequences, self._seq_lengths)
 
     def _zero_pad_overwrite(self, array):
         """Sets array[i, j] == 0 for any i, j with self._seq_lengths[j] < i
@@ -399,16 +406,21 @@ def validate_zero_padding(array_nd, max_seq_length, max_num_sequences, seq_lengt
     Note: depending on parameters, some elements at the end are not checked for 0-padding.
 
     Args:
-        array_nd: numpy.array of shape (M, N) or in general (M, N, ...)
+        array_nd: numpy.array of shape (M, N) or (M, N, K)
         max_seq_length: maximum in dimension 0, <= M, checked up to max_seq_length, the rest are ignored
         max_num_sequences: maximum in dimension 1, <=N, the rest are ignored
         seq_lengths: 1-d array of lengths, elements after the lengths are checked for 0-padding
     Raises:
         AssertionError: when checked invariant does not hold
     """
-    for j in xrange(max_num_sequences):
-        if seq_lengths[j] < max_seq_length:
-            assert np.all(array_nd[seq_lengths[j]:max_seq_length, j] == 0.0)
+    if array_nd.ndim == 2:
+        assert misc_cy.validate_zero_padding_2d_int(array_nd, max_seq_length, max_num_sequences, seq_lengths)
+    else:
+        assert misc_cy.validate_zero_padding_3d(array_nd, max_seq_length, max_num_sequences, seq_lengths)
+    # above is a faster equivalent of following:
+    # for j in xrange(max_num_sequences):
+    #     if seq_lengths[j] < max_seq_length:
+    #         assert np.all(array_nd[seq_lengths[j]:max_seq_length, j] == 0.0)
 
 
 def zero_pad_overwrite(array_nd, max_seq_length, max_num_sequences, seq_lengths):

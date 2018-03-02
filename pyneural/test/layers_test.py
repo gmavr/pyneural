@@ -70,14 +70,37 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         self.do_param_gradient_check(rnn_obj, inputs, labels, tolerance, h_init)
         self.do_input_gradient_check(rnn_obj, inputs, labels, tolerance, h_init)
 
+    def test_crf_layer_rnn_gradients(self):
+        num_samples = 10
+        dim_d, dim_h, dim_k = 9, 7, 5
+
+        dtype, tolerance = np.float64, 1e-9
+
+        loss_nn = layers.CRFandRRN(dim_d, dim_h, dim_k, num_samples, dtype)
+
+        num_params = loss_nn.get_num_p()
+
+        np.random.seed(seed=47)
+        model = 0.1 * np.random.standard_normal(num_params).astype(dtype)
+        data = np.random.standard_normal((num_samples, dim_d)).astype(dtype)
+        labels = np.random.randint(0, dim_k, num_samples)
+        prev_label = np.random.randint(0, dim_k)
+        h_init = 0.01 * np.random.standard_normal(dim_h).astype(dtype)
+
+        loss_nn.init_parameters_storage(model=model)
+        loss_nn.set_prev_label(prev_label)
+
+        self.do_param_gradient_check(loss_nn, data, labels, tolerance, h_init)
+        self.do_input_gradient_check(loss_nn, data, labels, tolerance, h_init)
+
     def test_rnn_embedding_param_gradient(self):
         seq_length = 30
         bptt_steps = seq_length
-        dim_d, dim_h, dim_k, dim_v = 7, 5, 23, 19
+        dim_d, dim_h, dim_k, dim_v = 7, 5, 9, 19
         dtype, tolerance = np.float64, 1e-8
 
         rnn_obj = layers.RnnSoftMax((dim_d, dim_h, dim_k), seq_length, bptt_steps=bptt_steps, dtype=dtype)
-        em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
+        em_obj = em.EmbeddingLayer(dim_v, dim_d, dtype)
         rnn_obj_em = layers.RnnEmbeddingsSoftMax(rnn_obj, em_obj)
 
         np.random.seed(seed=47)
@@ -89,10 +112,10 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
     def test_batched_rnn_embedding_param_gradient(self):
         max_batch_size = 5
         max_seq_length = 6
-        dim_d, dim_h, dim_k, dim_v = 7, 5, 23, 19
+        dim_d, dim_h, dim_k, dim_v = 7, 5, 9, 19
         dtype, tolerance = np.float64, 1e-8
 
-        em_batch = em.EmbeddingLayerBatch(dim_k, dim_d, max_seq_length, max_batch_size, dtype)
+        em_batch = em.EmbeddingLayerBatch(dim_v, dim_d, max_seq_length, max_batch_size, dtype)
         rnn_batch = rb.RnnBatchLayer(dim_d, dim_h, max_seq_length, max_batch_size, dtype=dtype)
         ce_sm_batch = ce_sm.CESoftmaxLayerBatch(dim_k, dim_h, max_seq_length, max_batch_size, dtype)
 
@@ -130,7 +153,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
     #     rnn_obj = rnn.RnnClassSoftMax((dim_d, dim_h, dim_k), word_class_mapper, num_samples, dtype=dtype)
     #
     #     np.random.seed(seed=47)
-    #     params, inputs, labels, h_init = create_random_data(rnn_obj, num_samples)
+    #     params, inputs, labels, h_init = _create_random_data(rnn_obj, num_samples)
     #
     #     self.do_param_gradient_check(rnn_obj, inputs, labels, params, tolerance, h_init)
 

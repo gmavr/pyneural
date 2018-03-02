@@ -268,14 +268,14 @@ class CRFLayer(LossNN):
 
     @staticmethod
     def _log_sum_exp(s_array, axis):
-        """ Computes log sum of 2-dim array along given dimension in a numerically stable fashion
+        """ Computes log sum exp of 2-dim array along given dimension in a numerically stable fashion
         
         Args:
             s_array: np.array of shape (K, K)
             axis: dimension across which summation occurs
         Returns:
-            s_vector: log sum 
-            rs_vector: log sum minus the scaling term
+            s_vector: log sum exp
+            rs_vector: log sum exp minus the scaling term
         """
         # assert s_array.shape == (self.dim_k, self.dim_k)
 
@@ -289,7 +289,9 @@ class CRFLayer(LossNN):
         return s_vector, rs_vector
 
     def _log_sum_exp_opt(self, s_array, axis, out_rs_vector, out_s_vector):
-        """ Same as log_sum_exp, but output is in-place of supplied vector holders. """
+        """ Same as _log_sum_exp(s_array, axis), but output is in-place of supplied vector holders.
+        It also returns the  numerical stability scaling term it chooses.
+        """
 
         if self.asserts_on:
             assert s_array.shape == (self.dim_k, self.dim_k)
@@ -396,8 +398,8 @@ class CRFLayer(LossNN):
         softmax_1d_opt(ps[0, self.prev_label], out=q[0, self.prev_label])
 
         for t in xrange(1, num_samples):
-             qtmp = softmax_1d_opt(np.reshape(ps[t], (self.dim_k * self.dim_k, )))
-             q[t] = np.reshape(qtmp, (self.dim_k, self.dim_k))
+            qtmp = softmax_1d_opt(np.reshape(ps[t], (self.dim_k * self.dim_k, )))
+            q[t] = np.reshape(qtmp, (self.dim_k, self.dim_k))
 
         # element-wise addition of the N arrays of size (K, K)
         np.sum(q, axis=0, out=self.d_a_trans)
@@ -479,7 +481,7 @@ class CRFLayer(LossNN):
     def get_most_probable_seq(self, class_dtype=np.int32):
         """Decode the highest scoring sequence of tags using the Viterbi decoder.
         See the recurrence equations in https://en.wikipedia.org/wiki/Viterbi_algorithm for the more general case of
-        HMM. The simplification here is that the visible and hidden states are the same thing.
+        HMM. The simplification here is that the visible and the hidden states are the same thing.
         Args:
             class_dtype: integer type of labels
         Returns:
@@ -487,8 +489,13 @@ class CRFLayer(LossNN):
             decode_sequence_score: score of returned sequence, float
         """
         num_samples = self.data.shape[0]
+        # Note: We can't use the trellis self.s we built in the forward method because self.s[t, j] is the log sum exp
+        # of the scores of all possible (forward) paths ending at [t, j] while here we want the score of only one
+        # forward path ending at [t, j]. So we build that simpler trellis here.
         # trellis[t, j] is the score of the most probable sequence that ends in label j at time t
         trellis = np.zeros_like(self.data)  # (T, K)
+        # backpointers[t, j] is the previous label (at time t-1) in the path for the maximum probability sequence when
+        # the label at time t is j
         backpointers = np.empty(self.data.shape, dtype=class_dtype)
         trellis[0] = self.a_trans[self.prev_label] + self.data[0]
         backpointers[0] = self.prev_label
@@ -496,9 +503,10 @@ class CRFLayer(LossNN):
         for t in xrange(1, num_samples):
             # (K, 1) + (K, K) -> (K, K)
             v = np.reshape(trellis[t - 1], (self.dim_k, 1)) + self.a_trans
-            trellis[t] = self.data[t] + np.max(v, 0)
-            backpointers[t] = np.argmax(v, 0)
+            trellis[t] = self.data[t] + np.max(v, axis=0)
+            backpointers[t] = np.argmax(v, axis=0)
 
+        # assemble the highest probability path
         viterbi = np.empty(num_samples, dtype=class_dtype)
         viterbi[num_samples - 1] = np.argmax(trellis[num_samples - 1])
         for t in xrange(num_samples - 1, 0, -1):

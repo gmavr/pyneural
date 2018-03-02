@@ -53,7 +53,7 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
 
     def test_gradients(self):
         num_samples = 10
-        dim_x, dim_k = 11, 13
+        dim_x, dim_k = 9, 7
         dtype, tolerance = np.float64, 1e-8
 
         ce_sm_layer = ce_sm.CESoftmaxLayer(dim_k, dim_x, dtype)
@@ -66,8 +66,8 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
 
     def test_gradients_batched(self):
         batch_size = 5
-        max_seq_length = 10
-        dim_x, dim_k = 11, 13
+        max_seq_length = 8
+        dim_x, dim_k = 9, 7
         dtype, tolerance = np.float64, 1e-8
 
         ce_batch = ce_sm.CESoftmaxLayerBatch(dim_k, dim_x, max_seq_length, batch_size, dtype)

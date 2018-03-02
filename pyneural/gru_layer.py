@@ -1,6 +1,7 @@
 import numpy as np
 
 import activation as ac
+import misc_cy
 from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
@@ -288,12 +289,12 @@ class GruLayer(ComponentNN):
     def vect_element_wise_matrix_plus_diag(self, n_vec, mat, n_rvec, out):
         """
         For each of N items: Repeat column vector n_vec[t] H2 times, compute element-wise product of vec and mat
-        (both have shape (H1, H2), H1=H2), add n_rvec[t] vector to its diagonal
+        (both have shape (H1, H2), H=H1=H2), add n_rvec[t] vector to its diagonal
 
         Args:
             n_vec: N vectors of size H1 (to be repeated as column vectors H2 times)
             mat: matrix of shape (H1, H2)
-            n_rvec: N vectors of size D to be added to the diagonal
+            n_rvec: N vectors of size H to be added to the diagonal
             out: array of shape (N, H1, H2) to hold the results
         """
         if self.asserts_on:
@@ -304,8 +305,9 @@ class GruLayer(ComponentNN):
             assert out.shape == (n, h, h)
         n, h = n_vec.shape
         # (N, H1, 1) hadamard (H1, H2) -> (N, H1, H2) hadamard (N, H1, H2).
-        c = np.expand_dims(n_vec, axis=2)
+        c = n_vec.reshape((n, h, 1))
         np.multiply(c, mat, out=out)
+        # Following can't be vectorized. Equivalent Cython implementation is slower.
         for i in xrange(n):
             out[i].flat[0::(h + 1)] += n_rvec[i]  # the most efficient way to add to a matrix's diagonal
 
@@ -421,10 +423,10 @@ class GruBatchLayer(BatchSequencesComponentNN):
     First dimension is time, the second dimension is batch (sequence index).
     """
 
-    def __init__(self, dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True):
+    def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, asserts_on=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_p = 3 * self.dim_h * self.dim_d + 3 * self.dim_h * self.dim_h + 3 * self.dim_h
-        super(GruBatchLayer, self).__init__(num_p, max_seq_length, batch_size, dtype)
+        super(GruBatchLayer, self).__init__(num_p, max_seq_length, max_batch_size, dtype)
         self.asserts_on = asserts_on
         self._seq_length = 0  # must be 0 before the first iteration
         self._max_seq_length = max_seq_length
@@ -434,7 +436,8 @@ class GruBatchLayer(BatchSequencesComponentNN):
         self.sigmoid_in = np.empty((max_seq_length, self._max_num_sequences, 2 * dim_h), dtype=dtype)
         self.tanh_in = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         # outputs from activation functions, dimensionality: (L, B, 3*H)
-        self.sigmoid_out = np.empty((max_seq_length, self._max_num_sequences, 2 * dim_h), dtype=dtype)
+        self.sigmoid_z_out = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.sigmoid_r_out = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.tanh_out = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.u_zr_partial = np.empty((self._max_num_sequences, 2 * dim_h), dtype=dtype)
         self.u_h_partial = np.empty((self._max_num_sequences, dim_h), dtype=dtype)
@@ -447,7 +450,8 @@ class GruBatchLayer(BatchSequencesComponentNN):
         self.hs_last = np.zeros((self._max_num_sequences, dim_h), dtype=dtype)
         self.one_minus_z = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.buf_b_h = np.empty((self._max_num_sequences, dim_h), dtype=dtype)
-        self.sigmoid_grad = np.empty((max_seq_length, self._max_num_sequences, 2 * dim_h), dtype=dtype)
+        self.sigmoid_z_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
+        self.sigmoid_r_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.tanh_grad = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.dh = np.empty((max_seq_length, self._max_num_sequences, dim_h), dtype=dtype)
         self.dh2 = np.empty((max_seq_length, self._max_num_sequences, 3 * dim_h), dtype=dtype)
@@ -464,6 +468,9 @@ class GruBatchLayer(BatchSequencesComponentNN):
         d.update({"dim_d": self.dim_d, "dim_h": self.dim_h, "max_seq_length": self._max_seq_length,
                   "max_num_sequences": self._max_num_sequences})
         return d
+
+    def get_dimensions(self):
+        return self.dim_d, self.dim_h
 
     def set_init_h(self, init_h):
         """
@@ -509,7 +516,8 @@ class GruBatchLayer(BatchSequencesComponentNN):
 
         # "trim" to proper sizes (no copies)
         sigmoid_in = self.sigmoid_in[0:curr_max_seq_length, 0:curr_num_sequences]
-        sigmoid_out = self.sigmoid_out[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, 2*H)
+        sigmoid_z_out = self.sigmoid_z_out[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, H)
+        sigmoid_r_out = self.sigmoid_r_out[0:curr_max_seq_length, 0:curr_num_sequences]
         tanh_in = self.tanh_in[0:curr_max_seq_length, 0:curr_num_sequences]
         tanh_out = self.tanh_out[0:curr_max_seq_length, 0:curr_num_sequences]
         u_zr_partial = self.u_zr_partial[0:curr_num_sequences]  # (B, 2*H)
@@ -525,11 +533,11 @@ class GruBatchLayer(BatchSequencesComponentNN):
             # now with batch u_zr_partial: ((B, H) x (2*H, H)^T) == (B, 2*H)
             np.dot(self.hs[t], self.u[0:(2*dim_h)].T, out=u_zr_partial)  # (B, 2*H)
             np.add(wb_partial[t, :, 0:(2*dim_h)], u_zr_partial, out=sigmoid_in[t])
-            ac.sigmoid(sigmoid_in[t], out=sigmoid_out[t])  # (B, 2*H)
-            # sigmoid_out[t, :, 0:dim_h].fill(1.0)  # for disabling update gate z_t
-            z_t = sigmoid_out[t, :, 0:dim_h]  # select (1, B, H) from (T, B, 2*H) collapses to (B, H)
-            # sigmoid_out[t, :, (1*dim_h):(2*dim_h)].fill(1.0)  # for disabling reset gate r_t
-            r_t = sigmoid_out[t, :, (1*dim_h):(2*dim_h)]  # (B, H)  OK
+            # select (1, B, H) from (T, B, 2*H) collapses to (B, H)
+            ac.sigmoid(sigmoid_in[t, :, 0:dim_h], out=sigmoid_z_out[t])  # (B, H)
+            ac.sigmoid(sigmoid_in[t, :, (1*dim_h):(2*dim_h)], out=sigmoid_r_out[t])  # (B, H)
+            z_t = sigmoid_z_out[t]
+            r_t = sigmoid_r_out[t]
             np.subtract(1.0, z_t, out=one_minus_z[t])
             r_prod_h = self.r_prod_h[t, 0:curr_num_sequences]  # (B, H)
             np.multiply(r_t, self.hs[t], out=r_prod_h)  # (B, H)
@@ -556,15 +564,16 @@ class GruBatchLayer(BatchSequencesComponentNN):
     def vect_element_wise_matrix_plus_diag(self, n_vec, mat, n_rvec, out):
         """
         See non-batch version for this extension to batched.
-        For each of N items: Apply broadcasting to create implicit (N. B, H1, H2) and compute element-wise product of
+        For each of N items: Apply broadcasting to create implicit (N. B, H, H) and compute element-wise product of
         vec and mat.
         Add n_rvec[t] vector to its diagonal.
+        Note: For identifying each of the two dimensions of size H, we use notation H1, H2.
 
         Args:
             n_vec: matrix of shape (N, B, H1)
                 N, B vectors of size H1 (to be repeated as column vectors H2 times)
             mat: matrix of shape (H1, H2)
-            n_rvec: N, B vectors of size D to be added to the diagonal of (H1, H2).
+            n_rvec: N, B vectors of size H to be added to the diagonal of (H1, H2).
             out: array of shape (N, B, H1, H2) to hold the results
         """
         if self.asserts_on:
@@ -573,14 +582,15 @@ class GruBatchLayer(BatchSequencesComponentNN):
             assert mat.shape == (h, h)
             assert n_rvec.shape == n_vec.shape
             assert out.shape == (n, b, h, h)
-        n, b, h = n_vec.shape
         # (N, B, H1, 1) hadamard (H1, H2) -> (N, B, H1, H2) hadamard (N, B, H1, H2).
         c = np.expand_dims(n_vec, axis=3)
         np.multiply(c, mat, out=out)
-        # can't find a way to vectorize this
-        for i in xrange(n):
-            for j in xrange(b):
-                out[i, j].flat[0::(h + 1)] += n_rvec[i, j]  # the most efficient way to add to a matrix's diagonal
+        misc_cy.add_to_diag_batch(out, n_rvec)
+        # Following can't be vectorized. Replaced with equivalent but much faster cython implementation above.
+        # n, b, h = n_vec.shape
+        # for i in xrange(n):
+        #     for j in xrange(b):
+        #         out[i, j].flat[0::(h + 1)] += n_rvec[i, j]  # the most efficient way to add to a matrix's diagonal
 
     def backwards(self, delta_upper):
         if self.asserts_on:
@@ -596,26 +606,29 @@ class GruBatchLayer(BatchSequencesComponentNN):
         dim_h = self.dim_h
 
         # "trim" to proper sizes (no copies)
-        sigmoid_out = self.sigmoid_out[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, 2*H)
-        sigmoid_grad = self.sigmoid_grad[0:curr_max_seq_length, 0:curr_num_sequences]
+        sigmoid_z_out = self.sigmoid_z_out[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, H)
+        sigmoid_r_out = self.sigmoid_r_out[0:curr_max_seq_length, 0:curr_num_sequences]
+        sigmoid_z_grad = self.sigmoid_z_grad[0:curr_max_seq_length, 0:curr_num_sequences]
+        sigmoid_r_grad = self.sigmoid_r_grad[0:curr_max_seq_length, 0:curr_num_sequences]
         tanh_out = self.tanh_out[0:curr_max_seq_length, 0:curr_num_sequences]
         tanh_grad = self.tanh_grad[0:curr_max_seq_length, 0:curr_num_sequences]
         hs = self.hs[0:curr_max_seq_length, 0:curr_num_sequences]
 
-        ac.sigmoid_grad(sigmoid_out, out=sigmoid_grad)
+        ac.sigmoid_grad(sigmoid_z_out, out=sigmoid_z_grad)
+        ac.sigmoid_grad(sigmoid_r_out, out=sigmoid_r_grad)
         ac.tanh_grad(tanh_out, out=tanh_grad)
 
         h_tilde_minus_h = self.h_tilde_minus_h[0:curr_max_seq_length, 0:curr_num_sequences]
         np.subtract(tanh_out, hs, out=h_tilde_minus_h)
 
         z_prod_grad = self.z_prod_grad[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, H)
-        np.multiply(tanh_grad, sigmoid_out[:, :, 0:dim_h], out=z_prod_grad)
+        np.multiply(tanh_grad, sigmoid_z_out, out=z_prod_grad)
 
         h_minus_h_prod_grad = self.h_minus_h_prod_grad[0:curr_max_seq_length, 0:curr_num_sequences]
-        np.multiply(sigmoid_grad[:, :, 0:dim_h], h_tilde_minus_h, out=h_minus_h_prod_grad)
+        np.multiply(sigmoid_z_grad, h_tilde_minus_h, out=h_minus_h_prod_grad)
 
         h_prod_grad = self.h_prod_grad[0:curr_max_seq_length, 0:curr_num_sequences]  # (T, B, H)
-        np.multiply(sigmoid_grad[:, :, dim_h:(2 * dim_h)], hs, out=h_prod_grad)
+        np.multiply(sigmoid_r_grad, hs, out=h_prod_grad)
 
         if curr_max_seq_length > 0:
             # (T-1, B, H, H)
@@ -627,7 +640,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
             self.vect_element_wise_matrix_plus_diag(
                 self.h_prod_grad[1:curr_max_seq_length, 0:curr_num_sequences, :],
                 self.u[dim_h:(2 * dim_h)],
-                self.sigmoid_out[1:curr_max_seq_length, 0:curr_num_sequences, (1 * dim_h):(2 * dim_h)],
+                self.sigmoid_r_out[1:curr_max_seq_length, 0:curr_num_sequences],
                 rhr)
 
             self.__back_propagation_loop(delta_upper, 0, curr_max_seq_length, rhr)
@@ -639,6 +652,9 @@ class GruBatchLayer(BatchSequencesComponentNN):
         dh = self.dh[0:curr_max_seq_length, 0:curr_num_sequences]
         np.multiply(dh, z_prod_grad, out=dh2[:, :, (2 * dim_h):])  # (T, B, H)
         np.multiply(dh, h_minus_h_prod_grad, out=dh2[:, :, 0:dim_h])  # (T, B, H)
+
+        # it is faster to allocate a (B, H, H) here and do the element-wise multiplications inside the loop rather
+        # than allocating a (T, B, H, H) and do the element-wise multiplications once outside the loop
         buf_b_hh = np.empty((curr_num_sequences, dim_h, dim_h), dtype=self._dtype)
         for t in xrange(curr_max_seq_length):
             # non-batch: (H1, 1) hadamard (H1, H2)
@@ -653,7 +669,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
                 np.dot(dh[t, b], buf_b_hh[b], out=dh2[t, b, dim_h:(2 * dim_h)])
 
         if self.asserts_on:
-            self._validate_zero_padding(dh2)
+            self._validate_zero_padding(dh2, max_seq_length=curr_max_seq_length)
 
         # reduce_sum (T, B, H) to (H, )
         np.sum(dh2, axis=(0, 1), out=self.db)
