@@ -1,16 +1,15 @@
 import numpy as np
 
-import bidir_rnn_layer
-import ce_crf_layer as ce_crf
-import ce_softmax_layer as csl
-import gru_layer as gru
-import rnn_layer as rl
-from ce_softmax_layer import CESoftmaxLayerBatch
-from embedding_layer import EmbeddingLayerBatch, EmbeddingLayer
-from neural_base import LossNN, BatchSequencesLossNN
-from neural_layer import NeuralLayer
-from rnn_batch_layer import RnnBatchLayer
-
+import pyneural.ce_crf_layer as ce_crf
+import pyneural.ce_softmax_layer as csl
+import pyneural.gru_layer as gru
+import pyneural.rnn_layer as rl
+from pyneural.bidir_rnn_layer import BidirRnnLayer
+from pyneural.ce_softmax_layer import CESoftmaxLayerBatch
+from pyneural.embedding_layer import EmbeddingLayerBatch, EmbeddingLayer
+from pyneural.neural_base import LossNN, BatchSequencesLossNN
+from pyneural.neural_layer import NeuralLayer
+from pyneural.rnn_batch_layer import RnnBatchLayer
 
 """ Collection of networks that include RnnLayer, RnnBatchLayer, GruLayer etc.
 
@@ -323,18 +322,17 @@ class RnnEmbeddingsSoftMaxBatch(BatchSequencesLossNN):
 
 class RnnClassSoftMax(LossNN):
     """ RNN and top class-group softmax layer
-      
+
     Network groups final classes in groups of classes and invokes softmax twice: once to determine the group class and
     given that to determine the final class.
     Initial impl where all classes have same number of words. Good impl should be classes each with same probability.
-    FIXME: gradient check broke after transition to latest framework for base classes.
     """
     def __init__(self, dimensions, word_class_mapper, batch_size, dtype=np.float64):
         self.dim_d, self.dim_h, self.dim_k = (dimensions[0], dimensions[1], dimensions[2])
         num_classes = word_class_mapper.get_num_word_classes()
         assert self.dim_k % num_classes == 0
         self.num_classes = num_classes
-        self.num_words_per_class = self.dim_k / num_classes
+        self.num_words_per_class = self.dim_k // num_classes
         self.word_class_mapper = word_class_mapper
         self.num_samples = batch_size
 
@@ -342,7 +340,7 @@ class RnnClassSoftMax(LossNN):
 
         self.class_ce_sm = csl.CESoftmaxLayer(self.num_classes, self.dim_h, dtype)
         self.word_ce_sm = [csl.CESoftmaxLayer(self.num_words_per_class, self.dim_h, dtype)
-                           for i in xrange(self.num_classes)]
+                           for _ in range(self.num_classes)]
 
         num_params = self.rnn.get_num_p() + self.class_ce_sm.get_num_p()\
             + self.num_classes * self.word_ce_sm[0].get_num_p()
@@ -382,7 +380,7 @@ class RnnClassSoftMax(LossNN):
         ofs1 = ofs2
         ofs2 += self.class_ce_sm.get_num_p()
         self.class_ce_sm.set_model_storage(params[ofs1:ofs2])
-        for i in xrange(self.num_classes):
+        for i in range(self.num_classes):
             ofs1 = ofs2
             ofs2 += self.word_ce_sm[i].get_num_p()
             self.word_ce_sm[i].set_model_storage(params[ofs1:ofs2])
@@ -397,7 +395,7 @@ class RnnClassSoftMax(LossNN):
         self.class_ce_sm.set_gradient_storage(grad[ofs1:ofs2])
         self.word_classes_grad = np.reshape(grad[ofs2:self.get_num_p()],
                                             (self.num_classes, self.word_ce_sm[0].get_num_p()))
-        for i in xrange(self.num_classes):
+        for i in range(self.num_classes):
             ofs1 = ofs2
             ofs2 += self.word_ce_sm[i].get_num_p()
             self.word_ce_sm[i].set_gradient_storage(grad[ofs1:ofs2])
@@ -415,7 +413,7 @@ class RnnClassSoftMax(LossNN):
         word_classes = self.word_classes
 
         # num_word_nn_params = self.word_ce_sm[0].get_number_parameters()
-        for i in xrange(self.num_samples):
+        for i in range(self.num_samples):
             # overwrite (sparse) gradient from previous
             # self.word_classes_grad[word_classes[i]] = np.zeros(num_word_nn_params, )
             self.word_classes_grad[word_classes[i]].fill(0.0)
@@ -427,7 +425,7 @@ class RnnClassSoftMax(LossNN):
         # This can be optimized. Instead of allocating new, we can remember previous and zero them.
         # Experimenting with similar concept in EmbeddingLayer there is performance improvement only when very sparse.
 
-        for i in xrange(self.num_samples):
+        for i in range(self.num_samples):
             label_in_class = self.word_class_mapper.get_label_in_class_for(labels[i])
             word_class = word_classes[i]
 
@@ -460,7 +458,7 @@ class RnnClassSoftMax(LossNN):
         ofs1 = ofs2
         ofs2 += self.class_ce_sm.get_num_p()
         params[ofs1:ofs2] = self.class_ce_sm.get_model()
-        for i in xrange(self.num_classes):
+        for i in range(self.num_classes):
             ofs1 = ofs2
             ofs2 += self.word_ce_sm[i].get_num_p()
             params[ofs1:ofs2] = self.word_ce_sm[i].get_model()
@@ -476,7 +474,7 @@ class RnnClassSoftMax(LossNN):
         ofs1 = ofs2
         ofs2 += self.class_ce_sm.get_num_p()
         grad[ofs1:ofs2] = self.class_ce_sm.get_gradient()
-        for i in xrange(self.num_classes):
+        for i in range(self.num_classes):
             ofs1 = ofs2
             ofs2 += self.word_ce_sm[i].get_num_p()
             grad[ofs1:ofs2] = self.word_ce_sm[i].get_gradient()
@@ -509,8 +507,7 @@ class BidirRnnSoftMax(LossNN):
     def __init__(self, dimensions, max_seq_length, bptt_steps=None, dtype=np.float32, activation="tanh",
                  cell_type="basic"):
         self.dim_d, self.dim_h, self.dim_k = dimensions
-        self.bi_rnn = bidir_rnn_layer.BidirRnnLayer(self.dim_d, self.dim_h, max_seq_length, bptt_steps, dtype,
-                                                    activation, cell_type)
+        self.bi_rnn = BidirRnnLayer(self.dim_d, self.dim_h, max_seq_length, bptt_steps, dtype, activation, cell_type)
         self.ce_sm = csl.CESoftmaxLayer(self.dim_k, 2 * self.dim_h, dtype)
         super(BidirRnnSoftMax, self).__init__(self.bi_rnn.get_num_p() + self.ce_sm.get_num_p(), dtype)
         self.delta_error = None
@@ -572,8 +569,7 @@ class EmbeddingBidirRnnSoftMax(LossNN):
     def __init__(self, dimensions, max_seq_length, bptt_steps=None, dtype=np.float64, activation="tanh"):
         self.word_vocab_size, self.dim_d, self.dim_h, self.dim_k = dimensions
         self.word_em = EmbeddingLayer(self.word_vocab_size, self.dim_d, dtype)
-        self.bi_rnn = bidir_rnn_layer.BidirRnnLayer(self.dim_d, self.dim_h, max_seq_length, bptt_steps, dtype,
-                                                    activation)
+        self.bi_rnn = BidirRnnLayer(self.dim_d, self.dim_h, max_seq_length, bptt_steps, dtype, activation)
         self.ce_sm = csl.CESoftmaxLayer(self.dim_k, 2 * self.dim_h, dtype)
         num_params = self.word_em.get_num_p() + self.bi_rnn.get_num_p() + self.ce_sm.get_num_p()
         super(EmbeddingBidirRnnSoftMax, self).__init__(num_params, dtype)

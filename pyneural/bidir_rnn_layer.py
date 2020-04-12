@@ -1,8 +1,8 @@
 import numpy as np
 
-import gru_layer as gru
-import rnn_layer as rl
-from neural_base import ComponentNN
+import pyneural.gru_layer as gru
+import pyneural.rnn_layer as rl
+from pyneural.neural_base import ComponentNN
 
 
 class BidirRnnLayer(ComponentNN):

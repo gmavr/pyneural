@@ -36,7 +36,7 @@ def softmax_layer_time():
     ce_batch = ce_sm.CESoftmaxLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype, asserts_on=asserts_on)
     ce.init_parameters_storage()
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     ce.model_normal_init(sd=0.1)
 
     ce_batch.init_parameters_storage(np.copy(ce.get_model()))
@@ -117,7 +117,7 @@ def create_random_data_em_batch(em_object, max_seq_length, batch_size, int_dtype
     num_unique = min(dim_k, 10)
     assert max_seq_length >= 5
     seq_lengths = np.random.randint(max_seq_length - 5, max_seq_length, batch_size, dtype=int_dtype)
-    for j in xrange(batch_size):
+    for j in range(batch_size):
         seq_length = seq_lengths[j]
         if seq_length > 0:
             indices = np.random.randint(0, dim_k, num_unique)
@@ -134,7 +134,7 @@ def embedding_time():
     dim_k, dim_d = 75000, 100
     dtype = np.float32
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     model = np.random.uniform(-0.2, 0.2, dim_k * dim_d).astype(dtype)
 
     em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype, asserts_on=False)
@@ -153,8 +153,8 @@ def embedding_time():
     num_iters = 10
 
     start_time = time.time()
-    for k in xrange(num_iters):
-        for i in xrange(batch_size):
+    for k in range(num_iters):
+        for i in range(batch_size):
             em_obj.forward(x_t[i, 0:seq_lengths[i]])
             em_obj.backwards(delta_err_t[i, 0:seq_lengths[i]])
     time_elapsed = (time.time() - start_time)
@@ -162,7 +162,7 @@ def embedding_time():
           % (num_iters, batch_size, time_elapsed))
 
     start_time = time.time()
-    for k in xrange(num_iters):
+    for k in range(num_iters):
         em_obj_batch.forward(x, seq_lengths)
         em_obj_batch.backwards(delta_err)
     time_elapsed = (time.time() - start_time)
@@ -278,7 +278,7 @@ def gru_fwd_versions_time():
 
     gru_obj = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, gru_obj.get_num_p(), max_seq_length)
 
     gru_obj.init_parameters_storage(model=model)
@@ -322,7 +322,7 @@ def gru_time():
     rnn_layer = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype, asserts_on=True)
     rnn_batch_layer = gru.GruBatchLayer(dim_d, dim_h, max_seq_length, batch_size, dtype, asserts_on=True)
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     x, _, model, _ = create_gru_random_data(dim_d, dim_h, dtype, rnn_layer.get_num_p(), num_max_seq_blocks)
 
     rnn_layer.init_parameters_storage(model=model)

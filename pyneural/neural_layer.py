@@ -1,12 +1,12 @@
 import numpy as np
 
-import activation as ac
-from neural_base import ComponentNN, glorot_init
+import pyneural.activation as ac
+from pyneural.neural_base import ComponentNN, glorot_init
 
 
 class NeuralLayer(ComponentNN):
     """ Standard fully connected neural layer with connections with optional activation (transfer) function.
-    
+
     It is allowed to set activation=None, in which case a projection layer is produced.
     """
     def __init__(self, dim_x, dim_y, dtype, activation="tanh", asserts_on=True):

@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.drop_out_layer as dl
 import pyneural.neural_layer as nl
+import pyneural.test.gradient_check_test_shared as gcs
 from pyneural.neural_base import LossNN
 
 
@@ -130,10 +130,10 @@ class TestDropoutLayer(gcs.GradientCheckTestShared):
         return x, y, model
 
     def test_gradients(self):
-        self.do_test_gradients(inverted_drop_out=True)
-        self.do_test_gradients(inverted_drop_out=False)
+        self.verify_gradients(inverted_drop_out=True)
+        self.verify_gradients(inverted_drop_out=False)
 
-    def do_test_gradients(self, inverted_drop_out):
+    def verify_gradients(self, inverted_drop_out):
         batch_size = 20
         dim_x, dim_z, dim_y = 6, 5, 8
         drop_p1, drop_p2, drop_p3 = 0.6, 0.5, 0.4
@@ -146,7 +146,7 @@ class TestDropoutLayer(gcs.GradientCheckTestShared):
         loss_nn = DoubleNeuralLayerWithDropoutL2Loss(n_layer_1, n_layer_2, drop_p1, drop_p2, drop_p3,
                                                      inverted_drop_out=inverted_drop_out)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x, y, model = TestDropoutLayer.create_random_data(dim_x, dim_y, dtype, loss_nn.get_num_p(), batch_size)
 
         loss_nn.init_parameters_storage(model=model)
@@ -164,10 +164,10 @@ class TestDropoutLayer(gcs.GradientCheckTestShared):
         self.do_input_gradient_check(loss_nn, x, y, tolerance)
 
     def test_distribution(self):
-        self.do_test_distribution(inverted_drop_out=True)
-        self.do_test_distribution(inverted_drop_out=False)
+        self.verify_distribution(True)
+        self.verify_distribution(False)
 
-    def do_test_distribution(self, inverted_drop_out):
+    def verify_distribution(self, inverted_drop_out):
         batch_size = 1000
         dim_x, dim_z, dim_y = 20, 40, 30
         drop_p1, drop_p2, drop_p3 = 0.7, 0.2, 0.8
@@ -180,7 +180,7 @@ class TestDropoutLayer(gcs.GradientCheckTestShared):
         loss_nn = DoubleNeuralLayerWithDropoutL2Loss(n_layer_1, n_layer_2, drop_p1, drop_p2, drop_p3,
                                                      inverted_drop_out=inverted_drop_out)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x, y, _ = TestDropoutLayer.create_random_data(dim_x, dim_y, dtype, loss_nn.get_num_p(), batch_size)
         x += 1  # center at 1
         x1 = np.copy(x)
@@ -191,20 +191,20 @@ class TestDropoutLayer(gcs.GradientCheckTestShared):
         loss_nn.forward_batch_train(x, y)
         assert drop_p1 - 0.1 < 1 - float(np.count_nonzero(loss_nn.n_layer_1.x)) / (dim_x * batch_size) < drop_p1 + 0.1
         m1, sd1 = np.mean(loss_nn.n_layer_1.x), np.std(loss_nn.n_layer_1.x)
-        m2, sd2 = np.mean(loss_nn.n_layer_2.x), np.std(loss_nn.n_layer_2.x)
+        sd2 = np.std(loss_nn.n_layer_2.x)
         if inverted_drop_out:
-            m3, sd3 = np.mean(loss_nn.drop_out_layer_3.get_y()), np.std(loss_nn.drop_out_layer_3.get_y())
+            sd3 = np.std(loss_nn.drop_out_layer_3.get_y())
         else:
-            m3, sd3 = np.mean(loss_nn.n_layer_2.y), np.std(loss_nn.n_layer_2.y)
+            sd3 = np.std(loss_nn.n_layer_2.y)
 
         loss_nn.forward_batch_eval(x1)
 
         m1a, sd1a = np.mean(loss_nn.n_layer_1.x), np.std(loss_nn.n_layer_1.x)
-        m2a, sd2a = np.mean(loss_nn.n_layer_2.x), np.std(loss_nn.n_layer_2.x)
+        sd2a = np.std(loss_nn.n_layer_2.x)
         if inverted_drop_out:
-            m3a, sd3a = np.mean(loss_nn.drop_out_layer_3.get_y()), np.std(loss_nn.drop_out_layer_3.get_y())
+            sd3a = np.std(loss_nn.drop_out_layer_3.get_y())
         else:
-            m3a, sd3a = np.mean(loss_nn.n_layer_2.y), np.std(loss_nn.n_layer_2.y)
+            sd3a = np.std(loss_nn.n_layer_2.y)
 
         # inputs are centered at 1 (before drop-out in train and scaling in eval)
         self.assertTrue(0.9 < m1 / m1a < 1.1)

@@ -3,7 +3,7 @@ import numpy as np
 
 def sigmoid(x, out=None):
     """ Computes logistic (sigmoid) transfer function
-    
+
     Args:
         x: np.array
         out: if not None, put output in-place
@@ -21,7 +21,7 @@ def sigmoid(x, out=None):
 
 def sigmoid_grad(f, out=None):
     """ Computes the gradient of sigmoid from pre-computed sigmoid function value
-    
+
     Args:
         f: np.array sigmoid function value of original input x.
         out: if not None, put output in-place
@@ -38,7 +38,7 @@ def sigmoid_grad(f, out=None):
 
 def tanh_grad(f, out=None):
     """ Computes the gradient of tanh from pre-computed tanh value
-    
+
     Args:
         f: np.array tanh function value of original input x.
         out: if not None, put output in-place
@@ -55,7 +55,7 @@ def tanh_grad(f, out=None):
 
 def relu(x, out=None):
     """ Computes ReLu
-    
+
     Args:
         x: np.array
         out: if not None, put output in-place
@@ -69,7 +69,7 @@ def relu(x, out=None):
 
 def relu_grad(f, out=None):
     """ Computes the gradient of ReLu from pre-computed ReLu function value.
-    
+
     Note: For an element-wise multiplication with relu_grad, it may be more efficient (?) to use indexing:
         g * relu_grad(f) = g(f <= 0)
     Args:

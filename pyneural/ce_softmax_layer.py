@@ -1,7 +1,7 @@
 import numpy as np
 
-from softmax import softmax_1d_opt, softmax_2d_opt, softmax_3d_opt
-from neural_base import (
+from pyneural.softmax import softmax_1d_opt, softmax_2d_opt, softmax_3d_opt
+from pyneural.neural_base import (
     LossNN, BatchSequencesLossNN, glorot_init,
     validate_x_and_lengths, validate_zero_padding, zero_pad_overwrite
 )
@@ -84,7 +84,7 @@ class CESoftmaxLayer(LossNN):
         y = np.dot(self._x, self.w.T) + self.b
         self.p_hat = softmax_2d_opt(y)
 
-        loss = - np.log(self.p_hat[xrange(num_samples), self._y_true])
+        loss = - np.log(self.p_hat[range(num_samples), self._y_true])
 
         return np.sum(loss)
 
@@ -101,7 +101,7 @@ class CESoftmaxLayer(LossNN):
         # for readability name it delta_s
         delta_s = self.p_hat  # not a copy, p_hat modified in place
         # numpy fancy indexing required below, slicing first dim as 0:num_samples is wrong
-        delta_s[xrange(num_samples), self._y_true] -= 1
+        delta_s[range(num_samples), self._y_true] -= 1
 
         np.sum(delta_s, axis=0, out=self.db)
 
@@ -145,7 +145,7 @@ class CESoftmaxLayer(LossNN):
 
 class CESoftmaxLayerFixedLength(LossNN):
     """ Optimized version of CESoftmaxLayer when the input length is known and fixed.
-    
+
     But it is only marginally faster and only for large model dimensions and input sizes.
 
     Do not use! Simply not better enough.
@@ -201,7 +201,7 @@ class CESoftmaxLayerFixedLength(LossNN):
         np.add(y, self.b, out=y)
         softmax_2d_opt(y, out=y)
 
-        loss = - np.log(self.p_hat[xrange(self.seq_length), self.labels])
+        loss = - np.log(self.p_hat[range(self.seq_length), self.labels])
 
         return np.sum(loss)
 
@@ -216,7 +216,7 @@ class CESoftmaxLayerFixedLength(LossNN):
         # for readability name it delta_s
         delta_s = self.p_hat  # not a copy, p_hat modified in place
         # numpy fancy indexing required below, slicing first dim as 0:num_samples is wrong
-        delta_s[xrange(self.seq_length), self.labels] -= 1
+        delta_s[range(self.seq_length), self.labels] -= 1
 
         np.sum(delta_s, axis=0, out=self.db)
 
@@ -351,13 +351,13 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
             # therefore something else has much higher cost
             softmax_3d_opt(y_fwd[0:curr_min_seq_length], out=self.p_hat[0:curr_min_seq_length])  # (M, N, K)
             # self.p_hat[0:curr_min_seq_length] = softmax_3d(y_fwd[0:curr_min_seq_length])  # (M, N, K)
-            for i in xrange(curr_min_seq_length):
+            for i in range(curr_min_seq_length):
                 p_hat_i = self.p_hat[i]
                 loss_v[i] = - np.log(
                     p_hat_i[range(self._curr_num_sequences), self._y_true[i, 0:self._curr_num_sequences]])
 
         if curr_min_seq_length < self._curr_max_seq_length:
-            for j in xrange(self._curr_num_sequences):
+            for j in range(self._curr_num_sequences):
                 seq_length = self._seq_lengths[j]
                 if curr_min_seq_length < seq_length:
                     softmax_2d_opt(y_fwd[curr_min_seq_length:seq_length, j, :],
@@ -377,16 +377,16 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
 
         if curr_min_seq_length > 0:
             # optimization: here we vectorize the common lengths of sequences in the batch
-            for i in xrange(curr_min_seq_length):
+            for i in range(curr_min_seq_length):
                 p_hat_i = self.p_hat[i]
-                p_hat_i[xrange(self._curr_num_sequences), self._y_true[i, 0:self._curr_num_sequences]] -= 1
+                p_hat_i[range(self._curr_num_sequences), self._y_true[i, 0:self._curr_num_sequences]] -= 1
 
         if curr_min_seq_length < self._curr_max_seq_length:
-            for j in xrange(self._curr_num_sequences):
+            for j in range(self._curr_num_sequences):
                 seq_length = self._seq_lengths[j]
                 if curr_min_seq_length < seq_length:
                     p_hat_j = self.p_hat[curr_min_seq_length:seq_length, j, :]  # (L, K)
-                    p_hat_j[xrange(seq_length - curr_min_seq_length),
+                    p_hat_j[range(seq_length - curr_min_seq_length),
                             self._y_true[curr_min_seq_length:seq_length, j]] -= 1
 
         # the above modified self.p_hat in-place to be equal to softmax derivative w.r. to softmax inputs
@@ -401,7 +401,7 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
         # dimension only (time)
         self.dw_hy.fill(0.0)
         kxd_array = self.kxd_array
-        for t in xrange(self._curr_max_seq_length):
+        for t in range(self._curr_max_seq_length):
             # (K, D) = (K, N) x (N, D) is the sum of outer products (K, 1) x (1, D) over the N sequences at time t
             # self.dw_hy += np.dot(delta_s[t].T, self.x[t])
             np.dot(delta_s[t].T, self._x[t], out=kxd_array)

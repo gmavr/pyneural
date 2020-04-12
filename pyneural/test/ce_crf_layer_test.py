@@ -2,15 +2,15 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.ce_crf_layer as ce_crf
+import pyneural.test.gradient_check_test_shared as gcs
 
 
 def _create_random_data(loss_nn, num_samples, dim_h, dim_k):
     num_params = loss_nn.get_num_p()
     dtype = loss_nn.get_dtype()
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     params = 0.1 * np.random.standard_normal(num_params).astype(dtype)
     data = np.random.standard_normal((num_samples, dim_h)).astype(dtype)
 
@@ -31,12 +31,12 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
         seq = np.array([0, 1, 2, 1, 1], dtype=np.int32)
         data = np.array([[1.5, -0.1, 0.1], [1.1, 2.5, -0.4], [0.5, -0.1, 5.0],
                          [-0.3, 1.54, 0.1], [0.1, 1.7, -0.1]]).astype(dtype)
-        self.assertEquals(len(seq), len(data))
+        self.assertEqual(len(seq), len(data))
         num_samples = data.shape[0]
 
         model = np.array([[1.0, -2.0, 0.0], [-0.1, 1.0, 2.5], [-1.4, 1.1, 2.3]], dtype=dtype)
         # model[prev_label].fill(0.0)  # zero the effect of previous state, for compatibility with tf.contrib.crf
-        self.assertEquals(model.shape, (dim_k, dim_k))
+        self.assertEqual(model.shape, (dim_k, dim_k))
         params = np.reshape(model, (dim_k * dim_k,))
 
         crf_layer = ce_crf.CRFLayer(dim_k, data.shape[0], dtype)
@@ -94,7 +94,7 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
 
         crf_layer.compute_trellis(data)
 
-        # most_probable_seq_greedy is the result of a simple but suboptimal greedy decoding strategy, which is 
+        # most_probable_seq_greedy is the result of a simple but suboptimal greedy decoding strategy, which is
         # surprisingly close to the optimal one returned by Viterbi decoding
         most_probable_seq_greedy = np.argmax(crf_layer.s, axis=1)
         most_probable_seq_score_greedy = crf_layer.score_for_seq(most_probable_seq_greedy)

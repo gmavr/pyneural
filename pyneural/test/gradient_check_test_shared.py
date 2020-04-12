@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-import gradient_check as gc
+import pyneural.test.gradient_check as gc
 
 
 class GradientCheckTestShared(unittest.TestCase):

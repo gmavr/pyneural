@@ -1,15 +1,16 @@
 import time
 import unittest
+from typing import Tuple
 
 import numpy as np
 
-import dataset as dst
-import gradient_check as gc
-import gradient_check_test_shared as gcs
 import pyneural.ce_softmax_layer as ce_sm
 import pyneural.embedding_layer as em
 import pyneural.layers as layers
 import pyneural.rnn_batch_layer as rb
+import pyneural.test.dataset as dst
+import pyneural.test.gradient_check as gc
+import pyneural.test.gradient_check_test_shared as gcs
 
 """ Tests of various multi-layer networks involving RNNs.
 """
@@ -46,7 +47,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         params = rnn_obj.get_model()
 
         # after normal initialization, the bias terms should be set to 0
-        self.assertEquals(np.count_nonzero(params), rnn_obj.get_num_p() - (dim_h + dim_k))
+        self.assertEqual(np.count_nonzero(params), rnn_obj.get_num_p() - (dim_h + dim_k))
 
         # validate zero mean and std
         non_zero_bool = params != 0.0
@@ -62,7 +63,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         rnn_obj = layers.RnnSoftMax((dim_d, dim_h, dim_k), seq_length, bptt_steps=bptt_steps, dtype=dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model, inputs, labels, h_init = create_rnn_random_data(rnn_obj, seq_length)
 
         rnn_obj.init_parameters_storage(model)
@@ -80,7 +81,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         num_params = loss_nn.get_num_p()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model = 0.1 * np.random.standard_normal(num_params).astype(dtype)
         data = np.random.standard_normal((num_samples, dim_d)).astype(dtype)
         labels = np.random.randint(0, dim_k, num_samples)
@@ -103,7 +104,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         em_obj = em.EmbeddingLayer(dim_v, dim_d, dtype)
         rnn_obj_em = layers.RnnEmbeddingsSoftMax(rnn_obj, em_obj)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model, inputs, labels, h_init = create_rnn_random_data(rnn_obj_em, seq_length, dim_v)
         rnn_obj_em.init_parameters_storage(model)
 
@@ -123,7 +124,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         batch_size = max_batch_size - 1  # set smaller batch than maximum
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
 
         seq_lengths = np.random.randint(max_seq_length - 3, max_seq_length, batch_size)
         seq_lengths[0] = 0  # set first sequence to be 0 length
@@ -141,19 +142,18 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         self.do_param_batched_gradient_check(loss_batch, x, labels, seq_lengths, tolerance, h_init)
 
-    # FIXME: Test broke
     # def test_class_rnn_param_gradient(self):
     #     num_samples = 20
     #     dim_d, dim_h, dim_k = (4, 10, 8)
     #
     #     dtype, tolerance = (np.float64, 1e-8)
     #
-    #     word_class_mapper = rnn.WordClassMapper(4, dim_k)
+    #     word_class_mapper = layers.WordClassMapper(4, dim_k)
     #
-    #     rnn_obj = rnn.RnnClassSoftMax((dim_d, dim_h, dim_k), word_class_mapper, num_samples, dtype=dtype)
+    #     rnn_obj = layers.RnnClassSoftMax((dim_d, dim_h, dim_k), word_class_mapper, num_samples, dtype=dtype)
     #
-    #     np.random.seed(seed=47)
-    #     params, inputs, labels, h_init = _create_random_data(rnn_obj, num_samples)
+    #     np.random.seed(47)
+    #     params, inputs, labels, h_init = create_rnn_random_data(rnn_obj, num_samples)
     #
     #     self.do_param_gradient_check(rnn_obj, inputs, labels, params, tolerance, h_init)
 
@@ -167,14 +167,14 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         loss_nn = layers.RnnClassSoftMax((dim_d, dim_h, dim_k), word_class_mapper, num_samples, dtype=dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model, data, labels, h_init = create_rnn_random_data(loss_nn, num_samples)
         loss_nn.init_parameters_storage(model)
 
         self.do_input_gradient_check(loss_nn, data, labels, tolerance, h_init)
 
     @staticmethod
-    def forward_backward_batch_with_init(rnn_and_data, h_init):
+    def forward_backward_batch_with_init(rnn_and_data, h_init) -> Tuple[float, np.array]:
         """
         Helper function for gradient check
         """
@@ -194,7 +194,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         rnn_obj = layers.RnnSoftMax((dim_d, dim_h, dim_k), batch_size, bptt_steps=bptt_steps, dtype=dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model, inputs, labels, h_init = create_rnn_random_data(rnn_obj, batch_size)
 
         rnn_obj.init_parameters_storage(model)

@@ -1,11 +1,11 @@
 import numpy as np
 
-import neural_base as nb
+import pyneural.neural_base as nb
 
 
 class LayerWithL2Loss(nb.LossNN):
     """ Adds a scalar (half of) squared error output loss function on top of an existing ComponentNN.
-    
+
     It recognizes only the h_init optional argument and passes it appropriately.
     """
 

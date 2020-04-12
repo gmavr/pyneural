@@ -26,7 +26,7 @@ def run_rnn_sgd_with_boundaries():
 
     print("number parameters: %d" % rnn_obj.get_num_p())
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     model, data, labels, h_init = create_rnn_random_data(rnn_obj, num_samples)
     rnn_obj.set_init_h(h_init)
     rnn_obj.init_parameters_storage(model)
@@ -79,7 +79,7 @@ def run_bi_rnn_sgd():
 
     print("class: %s number parameters: %d" % (type(bi_rnn_obj).__name__, bi_rnn_obj.get_num_p()))
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     model, data, labels, h_init = br_test.create_random_data_dense_inputs(bi_rnn_obj, num_samples)
     bi_rnn_obj.set_init_h(h_init)
     bi_rnn_obj.init_parameters_storage(model)
@@ -146,13 +146,13 @@ def run_manual_init_sgd_long():
     loss_obj.init_parameters_storage()
 
     x = np.empty((num_samples, dim_d), dtype)
-    for i in xrange(num_samples):
-        for j in xrange(dim_d):
+    for i in range(num_samples):
+        for j in range(dim_d):
             x[i, j] = float(lcg()) / float(prng_modulus) - 0.5
     # print(x)
 
     y_true = np.empty((num_samples, ), np.int)
-    for i in xrange(num_samples):
+    for i in range(num_samples):
         y_true[i] = int(dim_k * (float(lcg()) / float(prng_modulus)))
     # print(y_true)
 
@@ -205,7 +205,7 @@ def run_rnn_sgd_long():
 
     print("class: %s\t number parameters: %d" % (type(loss_obj).__name__, loss_obj.get_num_p()))
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     model, data, labels, h_init = create_rnn_random_data(loss_obj, num_samples)
     loss_obj.set_init_h(h_init)
 
@@ -256,7 +256,7 @@ def run_rnn_em_sgd_long():
 
     print("class: %s\t number parameters: %d" % (type(rnn_obj_em).__name__, rnn_obj.get_num_p()))
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     model, data, labels, h_init = create_rnn_random_data(rnn_obj_em, num_samples, dim_v)
     rnn_obj_em.init_parameters_storage(model)
     rnn_obj.set_init_h(h_init)
@@ -302,7 +302,7 @@ def run_rnn_class_sm_sgd_long():
 
     print("class: %s number parameters: %d" % (type(rnn_obj).__name__, rnn_obj.get_num_p()))
 
-    np.random.seed(seed=47)
+    np.random.seed(47)
     model, data, labels, h_init = create_rnn_random_data(rnn_obj, num_samples)
     rnn_obj.set_init_h(h_init)
     rnn_obj.init_parameters_storage(model)
@@ -343,4 +343,3 @@ if __name__ == "__main__":
     run_rnn_sgd_long()
     # run_rnn_em_sgd_long()
     # run_rnn_class_sm_sgd_long()
-

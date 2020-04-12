@@ -1,7 +1,9 @@
 import numpy as np
 
+from typing import Callable, Tuple
 
-def gradient_check(f, x, tolerance=1e-8):
+
+def gradient_check(f: Callable[[], Tuple[float, np.array]], x: np.array, tolerance: float = 1e-8) -> bool:
     """ Validates the analytically derived gradient by comparing it against the numerical approximation it computes.
 
     Note: excellent info on gradient checks: http://cs231n.github.io/neural-networks-3/#gradcheck
@@ -64,8 +66,8 @@ def test_f2():
 
     class ProjectionFunction(object):
 
-        def __init__(self, x, dtype_):
-            self.x = x
+        def __init__(self, x_, dtype_):
+            self.x = x_
             self.dtype = dtype_
             self.model = np.random.standard_normal(4).astype(dtype_)
 
@@ -86,7 +88,7 @@ def test_f2():
             b = np.reshape(params[ofs:(ofs + 1)], (1, ))
             return w, b
 
-        def projection_function(self):
+        def projection_function(self) -> Tuple[float, np.array]:
             """
             y = sum_x [ W x + b ] with y scalar, W matrix of shape 1xD, b scalar, x of shape D or NxD
             """
@@ -117,6 +119,7 @@ def test_f2():
     pf = ProjectionFunction(x, dtype)
     ret = gradient_check(pf.projection_function, pf.model)
     assert ret
+
 
 if __name__ == "__main__":
     test_f2()

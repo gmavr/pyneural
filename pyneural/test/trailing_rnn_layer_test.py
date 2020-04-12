@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
+import pyneural.test.gradient_check_test_shared as gcs
+import pyneural.test.rnn_batch_layer_test as rblt
 import pyneural.trailing_rnn_layer as trl
-import rnn_batch_layer_test as rblt
 from pyneural.ce_l2_loss import LayerWithL2Loss, BatchSequencesWithL2Loss
 
 
@@ -16,7 +16,7 @@ def _create_random_data_non_full_batch(rnn_batch):
     dtype = rnn_batch.get_dtype()
     dim_d, dim_h = rnn_batch.get_dimensions()
     y_true = np.random.standard_normal((rnn_batch.get_max_batch_size(), dim_h)).astype(dtype)
-    for i in xrange(rnn_batch.get_max_batch_size()):
+    for i in range(rnn_batch.get_max_batch_size()):
         if seq_lengths[i] == 0:
             y_true[i].fill(0.0)
 
@@ -46,7 +46,7 @@ class TrailingRnnTest(gcs.GradientCheckTestShared):
         tr_layer = trl.TrailingRnnLayer(dim_x, dim_h, num_samples, dtype, activation="tanh")
         loss_and_layer = LayerWithL2Loss(tr_layer)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model = 0.1 * np.random.standard_normal(loss_and_layer.get_num_p()).astype(dtype)
         x = np.random.standard_normal((num_samples, dim_x)).astype(dtype)
         y = np.random.standard_normal(dim_h).astype(dtype)
@@ -73,7 +73,7 @@ class TrailingRnnTest(gcs.GradientCheckTestShared):
         tr_layer = trl.TrailingRnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh")
         loss_and_layer = BatchSequencesWithL2Loss(tr_layer)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model = 0.1 * np.random.standard_normal((tr_layer.get_num_p(),)).astype(dtype)
         h_init = 0.01 * np.random.standard_normal((batch_size, dim_h)).astype(dtype)
 
@@ -100,12 +100,12 @@ class TrailingRnnTest(gcs.GradientCheckTestShared):
         dim_x, dim_h = 5, 3
         batch_size = 4
         max_seq_length = 8
-        dtype, tolerance = np.float64, 1e-8
+        dtype = np.float64
 
         tr_layer = trl.TrailingRnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype, "sigmoid")
         loss_and_layer = BatchSequencesWithL2Loss(tr_layer)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model = 0.1 * np.random.standard_normal((tr_layer.get_num_p(),)).astype(dtype)
         h_init = 0.01 * np.random.standard_normal((batch_size, dim_h)).astype(dtype)
 

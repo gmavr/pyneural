@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.neural_layer as nl
+import pyneural.test.gradient_check_test_shared as gcs
 from pyneural.ce_l2_loss import LayerWithL2Loss
 
 
@@ -23,7 +23,7 @@ class TestNeuralLayer(gcs.GradientCheckTestShared):
 
         n_layer = nl.NeuralLayer(dim_x, dim_y, dtype, activation='sigmoid')
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x, y, model = TestNeuralLayer.create_random_data(dim_x, dim_y, dtype, n_layer.get_num_p(), num_samples)
         delta_err = 0.2 * np.random.standard_normal((num_samples, dim_y)).astype(dtype)
 
@@ -60,7 +60,7 @@ class TestNeuralLayer(gcs.GradientCheckTestShared):
 
         n_layer = nl.NeuralLayer(dim_x, dim_y, dtype, activation='tanh')
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x, y, model = TestNeuralLayer.create_random_data(dim_x, dim_y, dtype, n_layer.get_num_p(), num_samples)
 
         loss_and_layer = LayerWithL2Loss(n_layer)
@@ -85,7 +85,7 @@ class TestNeuralLayer(gcs.GradientCheckTestShared):
 
         n_layer = nl.NeuralLayer(dim_x, dim_y, dtype, activation='tanh')
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x = np.random.standard_normal((num_samples, dim_x)).astype(dtype)
         model = 0.1 * np.random.standard_normal(n_layer.get_num_p()).astype(dtype)
 

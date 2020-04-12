@@ -2,10 +2,10 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.gru_layer as gru
+import pyneural.test.gradient_check_test_shared as gcs
 from pyneural.ce_l2_loss import LayerWithL2Loss, BatchSequencesWithL2Loss
-from rnn_batch_layer_test import create_random_data_non_full_batch, create_random_data_full_batch
+from pyneural.test.rnn_batch_layer_test import create_random_data_non_full_batch, create_random_data_full_batch
 
 
 class TestGru(gcs.GradientCheckTestShared):
@@ -17,7 +17,7 @@ class TestGru(gcs.GradientCheckTestShared):
         y = 0.5 * np.random.standard_normal((num_samples, dim_y)).astype(dtype)
         h_init = 0.1 * np.random.standard_normal(dim_y).astype(dtype)
         return x, y, model, h_init
-    
+
     def test_gradients(self):
         num_samples = 13
         dim_x, dim_h = 7, 5
@@ -25,7 +25,7 @@ class TestGru(gcs.GradientCheckTestShared):
 
         n_layer = gru.GruLayer(dim_x, dim_h, num_samples + 2, dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x, y, model, h_init = TestGru.create_random_data(dim_x, dim_h, dtype, n_layer.get_num_p(), num_samples)
 
         loss_and_layer = LayerWithL2Loss(n_layer)
@@ -53,8 +53,8 @@ class TestGru(gcs.GradientCheckTestShared):
             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             ], dtype=dtype)
         seq_lengths = np.array([1, 3, 2, 3, 0], dtype=np.int)
-        self.assertEquals(seq_lengths.shape, (batch_size, ))
-        self.assertEquals(data_t.shape, (batch_size, max_seq_length, dim_d))
+        self.assertEqual(seq_lengths.shape, (batch_size, ))
+        self.assertEqual(data_t.shape, (batch_size, max_seq_length, dim_d))
 
         delta_upper_t = np.array([
             [[-1.1, 2.3], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -63,7 +63,7 @@ class TestGru(gcs.GradientCheckTestShared):
             [[3.2, -5.4], [3.2, 2.1], [-4.6, -1.2], [0.0, 0.0]],
             [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
         ], dtype=dtype)
-        self.assertEquals(delta_upper_t.shape, (batch_size, max_seq_length, dim_h))
+        self.assertEqual(delta_upper_t.shape, (batch_size, max_seq_length, dim_h))
 
         data = np.transpose(data_t, (1, 0, 2))
         delta_upper = np.transpose(delta_upper_t, (1, 0, 2))
@@ -71,7 +71,7 @@ class TestGru(gcs.GradientCheckTestShared):
         rnn_layer = gru.GruLayer(dim_d, dim_h, max_seq_length, dtype)
         rnn_batch_layer = gru.GruBatchLayer(dim_d, dim_h, max_seq_length, max_batch_size, dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model = 0.1 * np.random.standard_normal((rnn_layer.get_num_p(),)).astype(dtype)
         hs_init = 0.01 * np.random.standard_normal((batch_size, dim_h)).astype(dtype)
 
@@ -96,7 +96,7 @@ class TestGru(gcs.GradientCheckTestShared):
         out_hs_batch = rnn_batch_layer.forward(data, seq_lengths)
         delta_err_batch = rnn_batch_layer.backwards(delta_upper)
 
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             seq_length = seq_lengths[i]
 
             # check 0-padded hidden state and returned error for batched version
@@ -120,7 +120,7 @@ class TestGru(gcs.GradientCheckTestShared):
 
         # one more forward propagation to verify that last hidden state is forwarded the same way in both cases
         accum_grad.fill(0.0)
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             # we explicitly stored in hs_init[i] the last hidden state of previous batch
             rnn_layer.set_init_h(hs_init[i])
             seq_length = seq_lengths[i]
@@ -131,7 +131,7 @@ class TestGru(gcs.GradientCheckTestShared):
         out_hs_batch = rnn_batch_layer.forward(data, seq_lengths)
         delta_err_batch = rnn_batch_layer.backwards(delta_upper)
 
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             seq_length = seq_lengths[i]
 
             # check 0-padded hidden state and returned error for batched version
@@ -162,7 +162,7 @@ class TestGru(gcs.GradientCheckTestShared):
         rnn_batch_layer = gru.GruBatchLayer(dim_d, dim_h, max_seq_length, max_batch_size, dtype)
         loss_and_layer = BatchSequencesWithL2Loss(rnn_batch_layer)
 
-        np.random.seed(seed=85)
+        np.random.seed(85)
         model = 0.1 * np.random.standard_normal((rnn_batch_layer.get_num_p(),)).astype(dtype)
         h_init = 0.01 * np.random.standard_normal((max_batch_size, dim_h)).astype(dtype)
 

@@ -1,10 +1,10 @@
 import numpy as np
 
-import activation as ac
-from neural_base import ComponentNN
-from rnn_layer import RnnLayer
-from rnn_batch_layer import RnnBatchLayer, glorot_init
-from gru_layer import GruBatchLayer
+import pyneural.activation as ac
+from pyneural.gru_layer import GruBatchLayer
+from pyneural.neural_base import ComponentNN
+from pyneural.rnn_batch_layer import RnnBatchLayer, glorot_init
+from pyneural.rnn_layer import RnnLayer
 
 """Rnn layers with only the last hidden state is returned.
 
@@ -92,7 +92,7 @@ class TrailingRnnLayer(ComponentNN):
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
         z_partial_2 = np.empty(self.dim_h, dtype=self._dtype)
-        for t in xrange(self._seq_length):
+        for t in range(self._seq_length):
             # ((H1, H2) x (H2, )) returns (H2, )
             np.dot(self.w_hh, self.hs[t], out=z_partial_2)
             self.activation(z_partial[t] + z_partial_2, out=self.hs[t+1])
@@ -116,7 +116,7 @@ class TrailingRnnLayer(ComponentNN):
         np.multiply(dh, self.activation_grad(self.hs[t + 1]), out=dh_raw[t])
         dh = np.dot(dh_raw[t], self.w_hh)
 
-        for t in xrange(self._seq_length - 2, -1, -1):
+        for t in range(self._seq_length - 2, -1, -1):
             # delta_upper[t] is my delta_s(t) * W_hy
             # dh_raw[j] is my delta(j, num_steps - 1) defined in formula (13), computed incrementally with (14) :
             np.multiply(dh, self.activation_grad(self.hs[t + 1]), out=dh_raw[t])
@@ -214,7 +214,7 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
     def forward(self, data, seq_lengths):
         y1 = super(TrailingRnnBatchLayer, self).forward(data, seq_lengths)
         self.y = np.empty((self._curr_num_sequences, self.dim_h), dtype=self._dtype)
-        for i in xrange(self._curr_num_sequences):
+        for i in range(self._curr_num_sequences):
             if seq_lengths[i] == 0:
                 # This case is not well-defined because the assumption is that the layer always returns 1 hidden state.
                 # Return all 0s predictions and treat the upper layer error vector as 0 (even if it is not).
@@ -228,7 +228,7 @@ class TrailingRnnBatchLayer(RnnBatchLayer):
         if self.asserts_on:
             assert delta_upper.shape == (self._curr_num_sequences, self.dim_h)
         delta_upper1 = np.zeros((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_h), self._dtype)
-        for i in xrange(self._curr_num_sequences):
+        for i in range(self._curr_num_sequences):
             # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it was not supplied as all 0s,
             # which is legitimate to happen). This is similar to drop-out applied. See also forward_batch().
             if self._seq_lengths[i] > 0:
@@ -258,7 +258,7 @@ class TrailingGruBatchLayer(GruBatchLayer):
     def forward(self, data, seq_lengths):
         y1 = super(TrailingGruBatchLayer, self).forward(data, seq_lengths)
         self.y = np.empty((self._curr_num_sequences, self.dim_h), dtype=self._dtype)
-        for i in xrange(self._curr_num_sequences):
+        for i in range(self._curr_num_sequences):
             if seq_lengths[i] == 0:
                 # This case is not well-defined because the assumption is that the layer always returns 1 hidden state.
                 # Return all 0s predictions and treat the upper layer error vector as 0 (even if it is not).
@@ -272,7 +272,7 @@ class TrailingGruBatchLayer(GruBatchLayer):
         if self.asserts_on:
             assert delta_upper.shape == (self._curr_num_sequences, self.dim_h)
         delta_upper1 = np.zeros((self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_h), self._dtype)
-        for i in xrange(self._curr_num_sequences):
+        for i in range(self._curr_num_sequences):
             # if self._seq_lengths[i] == 0 leave delta_upper1 all 0s (even if it was not supplied as all 0s,
             # which is legitimate to happen). This is similar to drop-out applied. See also forward_batch().
             if self._seq_lengths[i] > 0:

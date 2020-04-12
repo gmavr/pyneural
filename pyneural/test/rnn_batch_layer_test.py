@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.rnn_batch_layer as rbl
 import pyneural.rnn_layer as rl
+import pyneural.test.gradient_check_test_shared as gcs
 from pyneural.ce_l2_loss import BatchSequencesWithL2Loss
 from pyneural.neural_base import BatchSequencesComponentNN
 
@@ -40,7 +40,7 @@ def create_random_data_non_full_batch(rnn_batch):
 
     x = np.zeros((max_seq_length, batch_size, dim_d), dtype=dtype)
     y_true = np.zeros((max_seq_length, batch_size, dim_h), dtype=dtype)
-    for i in xrange(1, batch_size):
+    for i in range(1, batch_size):
         seq_length = seq_lengths[i]
         x[0:seq_length, i, :] = np.random.standard_normal((seq_length, dim_d)).astype(dtype)
         y_true[0:seq_length, i, :] = np.random.standard_normal((seq_length, dim_h)).astype(dtype)
@@ -76,7 +76,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         batch_layer = rbl.RnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh")
         loss_and_layer = BatchSequencesWithL2Loss(batch_layer)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         params, h_init = _create_random_params(batch_layer)
 
         x, y, seq_lengths = create_random_data_non_full_batch(batch_layer)
@@ -101,12 +101,12 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         dim_x, dim_h = 3, 2
         batch_size = 5
         max_seq_length = 8
-        dtype, tolerance = np.float64, 1e-8
+        dtype = np.float64
 
         batch_layer = rbl.RnnBatchLayer(dim_x, dim_h, max_seq_length, batch_size, dtype=dtype, activation="tanh")
         loss_and_layer = BatchSequencesWithL2Loss(batch_layer)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         params, h_init = _create_random_params(batch_layer)
 
         loss_and_layer.init_parameters_storage(params)
@@ -155,8 +155,8 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             ], dtype=dtype)
         seq_lengths = np.array([1, 3, 2, 3, 0], dtype=np.int)
 
-        self.assertEquals(data_t.shape, (batch_size, max_seq_length, dim_d))
-        self.assertEquals(seq_lengths.shape, (batch_size, ))
+        self.assertEqual(data_t.shape, (batch_size, max_seq_length, dim_d))
+        self.assertEqual(seq_lengths.shape, (batch_size, ))
 
         data = np.transpose(data_t, (1, 0, 2))
 
@@ -168,7 +168,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
         ], dtype=dtype)
 
-        self.assertEquals(delta_upper_t.shape, (batch_size, max_seq_length, dim_h))
+        self.assertEqual(delta_upper_t.shape, (batch_size, max_seq_length, dim_h))
 
         delta_upper = np.transpose(delta_upper_t, (1, 0, 2))
 
@@ -244,7 +244,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         accum_grad = np.zeros(rnn_layer.get_num_p(), dtype=dtype)
         accum_grad_2 = np.zeros(rnn_layer.get_num_p(), dtype=dtype)
 
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             # need to forward propagate again because forward_batch(data_t) and back_propagation_batch(delta_upper_t)
             # remember and re-use last data_t
             rnn_layer.set_init_h(hs_init[i])

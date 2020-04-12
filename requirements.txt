@@ -1,5 +1,4 @@
-numpy>=1.12.0
-six>=1.10.0
-cython>=0.28.1
-# nose is needed for running tests from within pycharm IDE
-nose
+numpy>=1.18.2
+cython>=0.29.16
+# nose is needed for running tests from within pycharm IDE and from command line
+nose>=1.3.7

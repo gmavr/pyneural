@@ -1,12 +1,14 @@
+from typing import Tuple
+
 import numpy as np
 
-from softmax import softmax_1d_opt, softmax_2d_opt, softmax_2d_no_norm
-from neural_base import LossNN, glorot_init
+from pyneural.neural_base import LossNN, glorot_init
+from pyneural.softmax import softmax_1d_opt, softmax_2d_opt, softmax_2d_no_norm
 
 
 class CRFLayer(LossNN):
     """ Top scalar CRF layer
-    
+
     Efficient vectorized implementation.
     """
 
@@ -81,11 +83,11 @@ class CRFLayer(LossNN):
 
     def compute_trellis_debug(self, data):
         """ Test only. Validates the efficient trellis implementation.
-        
+
         Contains both the efficient and a slower but far more readable implementation.
         Verifies that they agree.
         Used for validation and model debugging.
-        
+
         Args:
             data: input data, numpy array of shape (N, K)
         Raises:
@@ -109,7 +111,7 @@ class CRFLayer(LossNN):
         ps = self.ps = np.empty((num_samples, self.dim_k, self.dim_k), dtype=self._dtype)
 
         s0_1 = np.empty((self.dim_k, ), dtype=self._dtype)
-        for j in xrange(self.dim_k):
+        for j in range(self.dim_k):
             s0_1[j] = self.a_trans[self.prev_label, j] + data[0, j]
 
         s[0] = self.a_trans[self.prev_label] + data[0]  # (K, )
@@ -120,10 +122,10 @@ class CRFLayer(LossNN):
 
         assert np.array_equal(s[0], s0_1)
 
-        for t in xrange(1, num_samples):
+        for t in range(1, num_samples):
             tmp1 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
             exp_s = np.empty((self.dim_k, ), dtype=self._dtype)
-            for j in xrange(self.dim_k):
+            for j in range(self.dim_k):
                 tmp1[j] = s[t - 1] + self.a_trans[:, j] + data[t, j]  # (K, )
                 exp_s[j] = np.sum(np.exp(tmp1[j]))  # sum over i=1..K
 
@@ -158,7 +160,7 @@ class CRFLayer(LossNN):
         t = num_samples - 1
         tmp1 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
         exp_s_reverse = np.empty((self.dim_k, ), dtype=self._dtype)
-        for j in xrange(self.dim_k):
+        for j in range(self.dim_k):
             tmp1[j] = self.a_trans[j] + data[t]  # (K, )
             exp_s_reverse[j] = np.sum(np.exp(tmp1[j]))  # sum over i=1..K
 
@@ -174,10 +176,10 @@ class CRFLayer(LossNN):
 
         # s_reverse[num_samples - 2, j] == S'_(N-1, j). It holds S'_(N, j) == 0 for all j and therefore omitted in code
 
-        for t in xrange(num_samples - 2, 0, -1):
+        for t in range(num_samples - 2, 0, -1):
             tmp1 = np.empty((self.dim_k, self.dim_k), dtype=self._dtype)
             exp_s_reverse = np.empty((self.dim_k, ), dtype=self._dtype)
-            for j in xrange(self.dim_k):
+            for j in range(self.dim_k):
                 tmp1[j] = self.a_trans[j] + data[t] + s_reverse[t]  # (K, )
                 exp_s_reverse[j] = np.sum(np.exp(tmp1[j]))  # sum over i=1..K
 
@@ -218,7 +220,7 @@ class CRFLayer(LossNN):
 
         # This recursively updates quantities at time t from their values at time t-1, therefore it cannot vectorized.
         # A loop is necessary.
-        for t in xrange(1, num_samples):
+        for t in range(1, num_samples):
             # broadcasting: (K, 1) + (K, K) + (K, ) -> (K, 1) + (K, K) + (1, K)
             # first column vector is replicated K times, self.data[t] is treated as row vector and replicated K times
             s_reshaped = np.reshape(s[t - 1], (self.dim_k, 1))
@@ -257,7 +259,7 @@ class CRFLayer(LossNN):
 
         # This recursively updates quantities at time t from their values at time t-1, therefore it cannot vectorized.
         # A loop is necessary.
-        for t in xrange(num_samples - 2, 0, -1):
+        for t in range(num_samples - 2, 0, -1):
             # broadcasting of (K, K) + (K, ) + (K, ):
             # the 2 row vectors are replicated K times
             # prs = self.a_trans + data[t] + s_reverse[t]  # (K, K)
@@ -267,15 +269,15 @@ class CRFLayer(LossNN):
             self._log_sum_exp_opt(prs, axis=1, out_rs_vector=rs_reverse[t - 1], out_s_vector=s_reverse[t - 1])
 
     @staticmethod
-    def _log_sum_exp(s_array, axis):
+    def _log_sum_exp(s_array: np.array, axis: int) -> Tuple[np.array, np.array]:
         """ Computes log sum exp of 2-dim array along given dimension in a numerically stable fashion
-        
+
         Args:
             s_array: np.array of shape (K, K)
             axis: dimension across which summation occurs
         Returns:
-            s_vector: log sum exp
-            rs_vector: log sum exp minus the scaling term
+            s_vector: np.array of shape (K, ), log sum exp
+            rs_vector: np.array of shape (K, ), log sum exp minus the scaling term
         """
         # assert s_array.shape == (self.dim_k, self.dim_k)
 
@@ -288,7 +290,7 @@ class CRFLayer(LossNN):
 
         return s_vector, rs_vector
 
-    def _log_sum_exp_opt(self, s_array, axis, out_rs_vector, out_s_vector):
+    def _log_sum_exp_opt(self, s_array: np.array, axis: int, out_rs_vector: np.array, out_s_vector: np.array) -> float:
         """ Same as _log_sum_exp(s_array, axis), but output is in-place of supplied vector holders.
         It also returns the  numerical stability scaling term it chooses.
         """
@@ -319,7 +321,7 @@ class CRFLayer(LossNN):
         assert np.issubdtype(labels.dtype, np.integer)
         assert np.max(labels) < self.dim_k and 0 <= np.min(labels)
 
-    def score_for_seq(self, labels):
+    def score_for_seq(self, labels) -> float:
         if self.asserts_on:
             self._validate_labels(labels)
 
@@ -327,21 +329,21 @@ class CRFLayer(LossNN):
 
         score = self.a_trans[self.prev_label, labels[0]]
         score += np.sum(self.a_trans[labels[0:(num_samples-1)], labels[1:num_samples]])
-        score += np.sum(self.data[xrange(0, num_samples), labels[0:num_samples]])
+        score += np.sum(self.data[range(0, num_samples), labels[0:num_samples]])
         # The above is "advanced array indexing" ("fancy indexing") with first coordinate a sequence object and second
         # an ndarray. The above is NOT equal to self.data[0:num_samples, labels[0:num_samples]]] which mixes "slicing"
         # and "advanced array indexing".
         # See: https://docs.scipy.org/doc/numpy/reference/arrays.indexing.html#advanced-indexing
         return score
 
-    def all_seq_log_sum_exp(self):
+    def all_seq_log_sum_exp(self) -> float:
         """Return the log sum exp of the scores of all possible sequences.
         Can be called after the trellis has been constructed.
         """
         num_samples = self.data.shape[0]
         return self.scale_term + np.log(np.sum(np.exp(self.rs[num_samples-1])))
 
-    def all_seq_log_sum_exp_reverse(self):
+    def all_seq_log_sum_exp_reverse(self) -> float:
         """Returns the same as all_seq_log_sum_exp(.) except that it operates on the reverse path.
         Primarily for testing.
         """
@@ -355,7 +357,7 @@ class CRFLayer(LossNN):
         self.s_reverse_first = max_tmp + self.rs_reverse_first
         return self.s_reverse_first
 
-    def loss_for_seq(self, labels):
+    def loss_for_seq(self, labels) -> float:
         # - given_label_sequence + all_sequences
         return -self.score_for_seq(labels) + self.all_seq_log_sum_exp()
 
@@ -377,7 +379,7 @@ class CRFLayer(LossNN):
         num_samples = self.data.shape[0]
 
         ds = np.zeros((num_samples, self.dim_k))
-        ds[xrange(num_samples), self.labels] = -1
+        ds[range(num_samples), self.labels] = -1
         self.delta_err = ds + softmax_2d_no_norm(self.rs[0:num_samples] + self.rs_reverse[0:num_samples])
 
         ps = self.ps
@@ -386,7 +388,7 @@ class CRFLayer(LossNN):
             ps[0, self.prev_label] += self.s_reverse[0]  # (K, )
 
             # t = num_samples - 1 excluded from the loop on purpose, ps[num_samples - 1] should not be modified
-            for t in xrange(1, num_samples - 1):
+            for t in range(1, num_samples - 1):
                 # broadcasting: (K, K) + (K, ) -> (K, K) + (1, K) row vector self.s_reverse[t] replicated K times
                 ps[t] += self.s_reverse[t]
 
@@ -397,7 +399,7 @@ class CRFLayer(LossNN):
         # q[0, self.prev_label] = softmax_1d(ps[0, self.prev_label])
         softmax_1d_opt(ps[0, self.prev_label], out=q[0, self.prev_label])
 
-        for t in xrange(1, num_samples):
+        for t in range(1, num_samples):
             qtmp = softmax_1d_opt(np.reshape(ps[t], (self.dim_k * self.dim_k, )))
             q[t] = np.reshape(qtmp, (self.dim_k, self.dim_k))
 
@@ -405,7 +407,7 @@ class CRFLayer(LossNN):
         np.sum(q, axis=0, out=self.d_a_trans)
 
         self.d_a_trans[self.prev_label, self.labels[0]] -= 1
-        for t in xrange(1, num_samples):
+        for t in range(1, num_samples):
             self.d_a_trans[self.labels[t-1], self.labels[t]] -= 1
 
         # self.post_back_propagation_assert()
@@ -416,7 +418,7 @@ class CRFLayer(LossNN):
         num_samples = self.data.shape[0]
 
         self.delta_err = softmax_2d_no_norm(self.rs[0:num_samples] + self.rs_reverse[0:num_samples])
-        self.delta_err[xrange(num_samples), self.labels] -= 1
+        self.delta_err[range(num_samples), self.labels] -= 1
 
         ps = self.ps
 
@@ -427,7 +429,7 @@ class CRFLayer(LossNN):
             # add one dimension of size 1 for broadcasting to work
             ps[1:(num_samples - 1)] += np.expand_dims(self.s_reverse[1:(num_samples - 1)], axis=1)
             # above is equivalent to following but without the loop
-            # for t in xrange(1, num_samples - 1):
+            # for t in range(1, num_samples - 1):
             #     # broadcasting: (K, K) + (K, ) -> (K, K) + (1, K) row vector self.s_reverse[t] replicated K times
             #     ps[t] += self.s_reverse[t]
 
@@ -446,7 +448,7 @@ class CRFLayer(LossNN):
 
         self.d_a_trans[self.prev_label, self.labels[0]] -= 1
         # because the same indices can be repeated, this loop can't be vectorized using indexing
-        for t in xrange(1, num_samples):
+        for t in range(1, num_samples):
             self.d_a_trans[self.labels[t-1], self.labels[t]] -= 1
 
         # self.post_back_propagation_assert()
@@ -500,7 +502,7 @@ class CRFLayer(LossNN):
         trellis[0] = self.a_trans[self.prev_label] + self.data[0]
         backpointers[0] = self.prev_label
 
-        for t in xrange(1, num_samples):
+        for t in range(1, num_samples):
             # (K, 1) + (K, K) -> (K, K)
             v = np.reshape(trellis[t - 1], (self.dim_k, 1)) + self.a_trans
             trellis[t] = self.data[t] + np.max(v, axis=0)
@@ -509,7 +511,7 @@ class CRFLayer(LossNN):
         # assemble the highest probability path
         viterbi = np.empty(num_samples, dtype=class_dtype)
         viterbi[num_samples - 1] = np.argmax(trellis[num_samples - 1])
-        for t in xrange(num_samples - 1, 0, -1):
+        for t in range(num_samples - 1, 0, -1):
             viterbi[t-1] = backpointers[t, viterbi[t]]
 
         viterbi_score = np.max(trellis[-1])

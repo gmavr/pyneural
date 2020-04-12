@@ -1,21 +1,20 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
+import pyneural.misc_cy as misc_cy
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
 import numpy as np
 
-import misc_cy
 
+class CoreNN(ABC):
 
-class CoreNN(object):
-    __metaclass__ = ABCMeta
-
-    def __init__(self, num_p, dtype):
+    def __init__(self, num_p: int, dtype: Union[Type[np.float32], Type[np.float64]]):
         """
         Args:
             num_p: Number of parameters in the model (dimension of the model parameter vector)
             dtype: numpy float type: valid values np.float32, np.float64
         """
         if num_p <= 0:
-            raise ValueError("num_p must be positive integer, supplied %s" % str(num_p))
+            raise ValueError("num_p must be positive integer, supplied %d" % num_p)
         if dtype != np.float32 and dtype != np.float64:
             raise ValueError("dtype must be np.float32 or np.float64, supplied %s" % str(dtype))
         self._num_p = int(num_p)
@@ -23,19 +22,19 @@ class CoreNN(object):
         self._model = None
         self._grad = None
 
-    def get_num_p(self):
+    def get_num_p(self) -> int:
         """
         Return:
             Number of parameters in the model (dimension of the model parameter vector)
         """
         return self._num_p
 
-    def get_dtype(self):
+    def get_dtype(self) -> Union[Type[np.float32], Type[np.float64]]:
         return self._dtype
 
-    def init_parameters_storage(self, model=None, grad=None):
+    def init_parameters_storage(self, model: np.array = None, grad: np.array = None) -> None:
         """ Use provided storage for model and model gradient or allocate storage.
-        
+
         IT IS REQUIRED this method or both of set_model_storage(), set_gradient_storage() are invoked manually before
         the object can be used.
         (This method is necessary because for compound objects at __init()__ often we can't know the size of the model
@@ -44,7 +43,7 @@ class CoreNN(object):
         set up. If any of the model or grad are passed as non-None then references to these (and inside them) are
         created. If passed as None, then new internal memory is allocated and references set the same way. Memory is not
         initialized to any particular values.
-        
+
         Args:
             model: If not None, model np.array of shape (self.get_num_p(), ) to be used for the lifetime of the object
                 until init_parameters_storage() or set_model() is invoked.
@@ -68,16 +67,16 @@ class CoreNN(object):
             self._grad = grad
         self._set_gradient_references_in_place()
 
-    def set_model_storage(self, model):
+    def set_model_storage(self, model: np.array) -> None:
         """ Set model buffer and recursively internal references within that buffer.
-        
+
         Sets the memory storage where the model gradient is kept and creates internal references to appropriate
         locations within that memory buffer.
         By design it does not copy passed vector.
         The assumption is that a single continuous memory block has been allocated before outside of this class
         and when wiring components internal references are set inside it.
         It is NOT allowed to replace existing model storage.
-        
+
         Args:
             model: current model parameters, np.array of shape (self.get_num_p(), )
         Raises:
@@ -90,16 +89,16 @@ class CoreNN(object):
         self._model = model
         self._set_model_references_in_place()
 
-    def set_gradient_storage(self, grad):
+    def set_gradient_storage(self, grad: np.array) -> None:
         """ Set model gradient buffer and recursively internal references within that buffer.
-        
+
         Sets the memory storage where the model gradient is kept and creates internal references to appropriate
         locations within that memory buffer.
         By design it does not copy passed vector.
         The assumption is that a single continuous memory block has been allocated before outside of this class
         and when wiring components internal references are set inside it.
         It is NOT allowed to overwrite existing gradient storage.
-        
+
         Args:
             grad: storage for the gradient of the model parameters, np.array of shape (self.get_num_p(), )
         Raises:
@@ -113,26 +112,25 @@ class CoreNN(object):
         self._set_gradient_references_in_place()
 
     @abstractmethod
-    def _set_model_references_in_place(self):
+    def _set_model_references_in_place(self) -> None:
         """ Sets internal matrices to the appropriate locations inside the the model vector.
-        
+
         Returns:
             None
         """
 
     @abstractmethod
-    def _set_gradient_references_in_place(self):
-        """
-        Sets internal matrices to the appropriate locations inside the gradient vector of the model.
-        
-        When necessary, it is your responsibility to set gradient to 0 (suggested way is to cal np.fill() on the 
+    def _set_gradient_references_in_place(self) -> None:
+        """Sets internal matrices to the appropriate locations inside the gradient vector of the model.
+
+        When necessary, it is your responsibility to set gradient to 0 (suggested way is to cal np.fill() on the
         terminal nodes of the graph.)
-        
+
         Returns:
             None
         """
 
-    def get_model(self):
+    def get_model(self) -> np.array:
         """ Returns reference to the internal one-dimensional vector of model.
 
         Returns:
@@ -140,9 +138,9 @@ class CoreNN(object):
         """
         return self._model
 
-    def get_gradient(self):
+    def get_gradient(self) -> np.array:
         """ Returns reference to the internal one-dimensional vector of model gradient.
-        
+
         Returns:
             gradient: gradient wrt the current parameters of the delta_err_in fed in the last invocation of
                 back_propagation_batch(); numpy.array of shape (get_num_p(), )
@@ -150,34 +148,34 @@ class CoreNN(object):
         return self._grad
 
     @abstractmethod
-    def get_built_model(self):
+    def get_built_model(self) -> np.array:
         """ Assemble model on a new memory buffer different than the internal one. Test only.
-         
+
         Returns the same contents as get_model() but not necessarily backed by the same memory.
-        
+
         Returns:
             model: numpy.array of shape (get_num_p(), )
         """
 
     @abstractmethod
-    def get_built_gradient(self):
-        """ Assemble model gradient on a new memory buffer different than the internal one. Test only. 
-        
+    def get_built_gradient(self) -> np.array:
+        """ Assemble model gradient on a new memory buffer different than the internal one. Test only.
+
         Returns the same contents as get_gradient() but not necessarily backed by the same memory.
-        
+
         Returns:
             gradient: gradient wrt the current parameters of the delta_err_in fed in the last invocation of
                 back_propagation_batch(); numpy.array of shape (get_num_p(), )
         """
 
-    def get_class_fq_name(self):
+    def get_class_fq_name(self) -> str:
         return self.__module__ + "." + self.__class__.__name__
 
-    def _init_display_dict(self):
+    def _init_display_dict(self) -> Dict[str, Any]:
         return {"fq_name": self.get_class_fq_name(), "num_p": self.get_num_p()}
 
     @abstractmethod
-    def get_display_dict(self):
+    def get_display_dict(self) -> Dict[str, Any]:
         """
         Returns:
             Dictionary of selected class elements for human inspection.
@@ -187,13 +185,18 @@ class CoreNN(object):
 
 
 class ComponentNN(CoreNN):
+    """Layer taking as input N items or equivalently a single sequence of N items.
+
+    There is no notion of additional nesting visible in this interface, although that can be encapsulated in an
+    implementation. For direct support for sequences of different lengths, use `BatchSequencesComponentNN`.
+    """
 
     def __init__(self, num_p, dtype):
         super(ComponentNN, self).__init__(num_p, dtype)
         self.y = None  # leave this non-encapsulated
 
     @abstractmethod
-    def forward(self, x):
+    def forward(self, x: np.array) -> np.array:
         """
         Performs one batch forward propagation using the current model.
         Retains reference to passed input data matrix and assumes that it will NOT be changed externally until the next
@@ -205,7 +208,7 @@ class ComponentNN(CoreNN):
         """
 
     @abstractmethod
-    def backwards(self, delta_err_in):
+    def backwards(self, delta_err_in: np.array) -> Optional[np.array]:
         """
         Args:
             delta_err_in: error vector returned from upper layer, i.e. derivative of loss function w.r. to outputs
@@ -213,6 +216,7 @@ class ComponentNN(CoreNN):
         Returns:
             delta_err_out: error vector from this layer, i.e. derivative of loss function w.r. to inputs to this layer
                 numpy.array of shape (N, input_dimension)
+                None for non-differentiable
         """
 
 
@@ -228,7 +232,7 @@ class LossNN(CoreNN):
         self._y_true = None
 
     @abstractmethod
-    def forward_backwards(self, x, y_true):
+    def forward_backwards(self, x: np.array, y_true: np.array) -> Tuple[float, np.array, Optional[np.array]]:
         """ Performs one forward propagation and one back propagation using the current model.
 
         Args:
@@ -245,10 +249,10 @@ class LossNN(CoreNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         """ Convenience wrapper method for gradient_check.
-        
+
         Use case: model changed in-place across invocations of this method in gradient check.
         Most common implementation included, but meant to be overridden as needed.
-        
+
         Args:
             kwargs: optional model-specific arguments (e.g. initializations)
         Returns:
@@ -260,10 +264,10 @@ class LossNN(CoreNN):
 
     def forward_backwards_grad_input(self, **kwargs):
         """ Convenience wrapper method for gradient_check.
-        
+
         Use case: input x changed in-place across invocations of this method in gradient check/
         Most common implementation included, but meant to be overridden as needed.
-        
+
         Returns:
             loss: see forward_backwards()
             delta_error: see forward_backwards()
@@ -278,7 +282,8 @@ class BatchSequencesComponentNN(CoreNN):
     First dimension is time, second is sequence index.
     """
 
-    def __init__(self, num_p, max_seq_length, max_batch_size, dtype):
+    def __init__(self, num_p: int, max_seq_length: int, max_batch_size: int,
+                 dtype: Union[Type[np.float32], Type[np.float64]]) -> None:
         """
         Args:
             num_p: model dimensionality
@@ -303,9 +308,9 @@ class BatchSequencesComponentNN(CoreNN):
         self._seq_lengths = None  # 1-d np.array
 
     @abstractmethod
-    def forward(self, x, seq_lengths):
+    def forward(self, x: np.array, seq_lengths: np.array) -> np.array:
         """Performs one forward propagation using the current model.
-        
+
         Retains reference to passed input data matrix and assumes that it will NOT be changed externally until the next
         invocation of this method.
         The values of the inputs after the end of each sequence length are required to be all 0.0 or 0. This method may
@@ -317,7 +322,7 @@ class BatchSequencesComponentNN(CoreNN):
         It is allowed that one or more sequences have 0 length.
         Size maxT of first dimension of x must be less or equal to max_seq_length chosen at object construction time.
         The number of sequences N passed must be equal to batch_size chosen at object construction time.
-        
+
         Args:
             x: numpy.array of shape (maxT, N, ..)
                 N input sequences, each at most maxT observations, 0-padded
@@ -328,7 +333,7 @@ class BatchSequencesComponentNN(CoreNN):
         """
 
     @abstractmethod
-    def backwards(self, delta_upper):
+    def backwards(self, delta_upper: np.array) -> Optional[np.array]:
         """Performs one forward propagation using the current model (keeping internal model unchanged).
 
         The values of the input delta_upper after the end of each sequence length are required to be all 0.0 and this
@@ -344,14 +349,16 @@ class BatchSequencesComponentNN(CoreNN):
                 numpy.array of shape (maxT, N, input_dimension), 0-padded
         """
 
-    def get_max_seq_length(self):
+    def get_max_seq_length(self) -> int:
+        """The fixed maximum possible length of a sequence in any batch that this instantiated layer allows"""
         return self._max_seq_length
 
     def get_max_seq_length_out(self):
         # The common case as default implementation. Override as needed.
         return self._max_seq_length
 
-    def get_max_batch_size(self):
+    def get_max_batch_size(self) -> int:
+        """The fixed maximum batch size that this instantiated layer allows"""
         return self._max_num_sequences
 
     def get_seq_lengths(self):
@@ -373,7 +380,7 @@ class BatchSequencesComponentNN(CoreNN):
 
     def _validate_zero_padding(self, array, max_seq_length=None):
         """Validates that array[i, j] == 0 for any i, j with seq_lengths[j] < i
-        
+
         Args:
             array: numpy.array of shape (M, N, ...)
             max_seq_length: integer, maximum time to check up to
@@ -390,7 +397,7 @@ class BatchSequencesComponentNN(CoreNN):
 
     def _zero_pad_overwrite(self, array):
         """Sets array[i, j] == 0 for any i, j with self._seq_lengths[j] < i
-        
+
         Args:
             array: numpy.array of shape (M, N, ...)
         """
@@ -415,15 +422,17 @@ def validate_zero_padding(array_nd, max_seq_length, max_num_sequences, seq_lengt
     """
     if array_nd.ndim == 2:
         assert misc_cy.validate_zero_padding_2d_int(array_nd, max_seq_length, max_num_sequences, seq_lengths)
-    else:
+    elif array_nd.ndim == 3:
         assert misc_cy.validate_zero_padding_3d(array_nd, max_seq_length, max_num_sequences, seq_lengths)
+    else:
+        raise ValueError("Array must have rank 2 or 3")
     # above is a faster equivalent of following:
-    # for j in xrange(max_num_sequences):
+    # for j in range(max_num_sequences):
     #     if seq_lengths[j] < max_seq_length:
     #         assert np.all(array_nd[seq_lengths[j]:max_seq_length, j] == 0.0)
 
 
-def zero_pad_overwrite(array_nd, max_seq_length, max_num_sequences, seq_lengths):
+def zero_pad_overwrite(array_nd: np.array, max_seq_length: int, max_num_sequences: int, seq_lengths: np.array):
     """Sets array_nd[i, j] == 0 for any i, j with seq_lengths[j] < i
 
     Note: depending on parameters, some elements at the end remain non-0-padded.
@@ -434,7 +443,7 @@ def zero_pad_overwrite(array_nd, max_seq_length, max_num_sequences, seq_lengths)
         max_num_sequences: maximum in dimension 1, <=N, the rest are ignored
         seq_lengths: 1-d array of lengths, this function 0-pads elements after the lengths up to max_seq_length
     """
-    for j in xrange(max_num_sequences):
+    for j in range(max_num_sequences):
         if seq_lengths[j] < max_seq_length:
             array_nd[seq_lengths[j]:max_seq_length, j].fill(0.0)
 
@@ -459,7 +468,8 @@ class BatchSequencesLossNN(CoreNN):
         self._y_true = None
 
     @abstractmethod
-    def forward_backwards(self, x, y_true, seq_lengths):
+    def forward_backwards(self, x: np.array, y_true: np.array,
+                          seq_lengths: np.array) -> Tuple[float, np.array, Optional[np.array]]:
         """ Performs one forward propagation and one back propagation using the current model.
 
         The contract regarding values after the sequence length is same as BatchSequencesComponentNN.forward(..) and
@@ -485,10 +495,10 @@ class BatchSequencesLossNN(CoreNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         """ Convenience wrapper method for gradient_check.
-        
+
         Use case: model changed in-place across invocations of this method in gradient check.
         Most common implementation supplied as default, but meant to be overridden as needed.
-        
+
         Args:
             kwargs: optional model-specific arguments (e.g. initializations)
         Returns:
@@ -500,7 +510,7 @@ class BatchSequencesLossNN(CoreNN):
 
     def forward_backwards_grad_input(self, **kwargs):
         """ Convenience wrapper method for gradient_check.
-        
+
         Most common implementation supplied as default, but meant to be overridden as needed.
         Returns:
             loss: see forward_backwards()
@@ -527,4 +537,3 @@ def validate_x_and_lengths(x, max_seq_length, max_num_sequences, seq_lengths):
 def glorot_init(shape):
     limit = np.sqrt(6.0 / (np.sum(shape)))
     return np.random.uniform(low=-limit, high=limit, size=shape)
-

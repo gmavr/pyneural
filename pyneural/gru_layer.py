@@ -1,8 +1,8 @@
 import numpy as np
 
-import activation as ac
-import misc_cy
-from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
+import pyneural.activation as ac
+import pyneural.misc_cy as misc_cy
+from pyneural.neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
 class GruLayer(ComponentNN):
@@ -54,7 +54,7 @@ class GruLayer(ComponentNN):
 
     def get_display_dict(self):
         d = self._init_display_dict()
-        d.update({"dim_d": self.dim_d, "dim_h": self.dim_h, "max_seq_length": self._max_seq_length })
+        d.update({"dim_d": self.dim_d, "dim_h": self.dim_h, "max_seq_length": self._max_seq_length})
         return d
 
     def get_max_seq_length(self):
@@ -95,8 +95,8 @@ class GruLayer(ComponentNN):
     def forward_batch_debug(self, x):
         """ More readable, less optimized version than forward() which should be faster.
 
-        It turns out that its running time is very similar to or marginally slower than the more "optimized" version.
-        The optimized avoids memory allocations at the expense of more python function invocations.
+        It turns out that its running time is similar to or faster than the more "optimized" version.
+        The "optimized" version avoids memory allocations at the expense of more python function invocations.
         """
         if self.asserts_on:
             assert x.ndim == 2
@@ -119,7 +119,7 @@ class GruLayer(ComponentNN):
         wb_zr = wb[:, 0:(2 * dim_h)]
         wb_h = wb[:, (2 * dim_h):]
 
-        for t in xrange(self._seq_length):
+        for t in range(self._seq_length):
             # ((2 * H, H) x (H, )) returns (2 * H, )
             sigmoid_in[t] = wb_zr[t] + np.dot(u_zr, self.hs[t])
             sigmoid_out[t] = ac.sigmoid(sigmoid_in[t])
@@ -161,7 +161,7 @@ class GruLayer(ComponentNN):
         # as summations over samples. A loop is necessary.
         u_partial = self.u_partial
         buf_h = self.buf_h  # marginally faster to re-use buffer instead of allocating
-        for t in xrange(self._seq_length):
+        for t in range(self._seq_length):
             # ((2 * H, H) x (H, )) returns (2 * H, )
             np.dot(self.u[0:(2*dim_h)], self.hs[t], out=u_partial[0:(2*dim_h)])
             np.add(wb_partial[t, 0:(2*dim_h)], u_partial[0:(2*dim_h)], out=sigmoid_in[t])
@@ -242,7 +242,7 @@ class GruLayer(ComponentNN):
         np.multiply(self.dh[0:seq_length], z_prod_grad, out=dh2[:, (2*dim_h):])  # (T, H)
         np.multiply(self.dh[0:seq_length], h_minus_h_prod_grad, out=dh2[:, :dim_h])  # (T, H)
         # (t, H1), (t, H1, H2) -> (t, H2)
-        for t in xrange(seq_length):
+        for t in range(seq_length):
             # (H1, 1) hadamard (H1, H2) vs ((H1, ) hadamard (H2, H1)).T
             # version with reshaping is marginally slower than with transpose
             # np.multiply(np.reshape(z_prod_grad[t], (dim_h, 1)), u_h, out=self.buf_hh)
@@ -308,7 +308,7 @@ class GruLayer(ComponentNN):
         c = n_vec.reshape((n, h, 1))
         np.multiply(c, mat, out=out)
         # Following can't be vectorized. Equivalent Cython implementation is slower.
-        for i in xrange(n):
+        for i in range(n):
             out[i].flat[0::(h + 1)] += n_rvec[i]  # the most efficient way to add to a matrix's diagonal
 
     def __back_propagation_loop(self, delta_upper, low_t, high_t):
@@ -333,7 +333,7 @@ class GruLayer(ComponentNN):
         self.dh[high_t - 1] = delta_upper[high_t - 1]
         # Moving multiplication with self.rhr here would produce (H, H1) x (T-1, H1, H2) = (H, T-1, H2), but we'd like
         # (T-1, H, H2) for fast access.
-        for t in xrange(high_t - 2, low_t - 1, -1):
+        for t in range(high_t - 2, low_t - 1, -1):
             dh = self.dh[t + 1]
             np.multiply(dh, self.h_minus_h_prod_grad[t + 1], out=buf_h)
             np.dot(buf_h, u_z, out=dh_next)
@@ -365,7 +365,7 @@ class GruLayer(ComponentNN):
     #
     #     z_dhs_tilde_dh = self.dhs_tilde_dh[0:(seq_length - 1)]
     #
-    #     for t in xrange(seq_length - 1):
+    #     for t in range(seq_length - 1):
     #         # for each t: from (T-1, H, H) select (H, H), then (H, H) x (H, H)
     #         np.dot(zrhr[t], rhr[t], out=z_dhs_tilde_dh[t])
     #
@@ -528,7 +528,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
-        for t in xrange(self._curr_max_seq_length):
+        for t in range(self._curr_max_seq_length):
             # non-batch was  u_zr_partial: ((2*H, H) x (H, )) == (2*H, )
             # now with batch u_zr_partial: ((B, H) x (2*H, H)^T) == (B, 2*H)
             np.dot(self.hs[t], self.u[0:(2*dim_h)].T, out=u_zr_partial)  # (B, 2*H)
@@ -550,7 +550,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
             np.multiply(self.hs[t], one_minus_z[t], out=buf_b_h)
             self.hs[t + 1] += buf_b_h
 
-        for s in xrange(curr_num_sequences):
+        for s in range(curr_num_sequences):
             seq_length = seq_lengths[s]
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[seq_length, s]
@@ -588,8 +588,8 @@ class GruBatchLayer(BatchSequencesComponentNN):
         misc_cy.add_to_diag_batch(out, n_rvec)
         # Following can't be vectorized. Replaced with equivalent but much faster cython implementation above.
         # n, b, h = n_vec.shape
-        # for i in xrange(n):
-        #     for j in xrange(b):
+        # for i in range(n):
+        #     for j in range(b):
         #         out[i, j].flat[0::(h + 1)] += n_rvec[i, j]  # the most efficient way to add to a matrix's diagonal
 
     def backwards(self, delta_upper):
@@ -656,7 +656,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
         # it is faster to allocate a (B, H, H) here and do the element-wise multiplications inside the loop rather
         # than allocating a (T, B, H, H) and do the element-wise multiplications once outside the loop
         buf_b_hh = np.empty((curr_num_sequences, dim_h, dim_h), dtype=self._dtype)
-        for t in xrange(curr_max_seq_length):
+        for t in range(curr_max_seq_length):
             # non-batch: (H1, 1) hadamard (H1, H2)
             # batched:   (B, H1, 1) hadamard (B, H1, H2)
             np.multiply(np.expand_dims(z_prod_grad[t], 2), u_h, out=buf_b_hh)
@@ -665,7 +665,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
             np.multiply(np.expand_dims(h_prod_grad[t], 1), buf_b_hh, out=buf_b_hh)
             # non-batch: (H1, ) x (H1, H2) = (H2, )
             # batched:   B times of (H1, ) x (H1, H2) -> B times of (H2, )
-            for b in xrange(curr_num_sequences):
+            for b in range(curr_num_sequences):
                 np.dot(dh[t, b], buf_b_hh[b], out=dh2[t, b, dim_h:(2 * dim_h)])
 
         if self.asserts_on:
@@ -680,7 +680,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
         self.du.fill(0.0)
         buf_3hxd = np.empty((3 * dim_h, self.dim_d), dtype=self._dtype)
         buf_2hxh = np.empty((2 * dim_h, self.dim_h), dtype=self._dtype)
-        for t in xrange(curr_max_seq_length):
+        for t in range(curr_max_seq_length):
             # (3*H, D) = (3*H, B) x (B, D) is the sum of outer products (3*H, 1) x (1, D) over the B sequences at time t
             np.dot(dh2[t].T, self.x[t], out=buf_3hxd)  # (3*H, B) x (B, D)
             self.dw += buf_3hxd
@@ -728,7 +728,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
         z_prod_grad = self.z_prod_grad[:, 0:curr_num_sequences]
         # we could do here: np.dot(u_h, rhr) which is (H, H1) x (T-1, B, H1, H2) = (H, T-1, B, H2),
         # but for quick access we want (T-1, B, H, H2) and transposing or slicing was found to be too expensive
-        for t in xrange(high_t - 2, low_t - 1, -1):
+        for t in range(high_t - 2, low_t - 1, -1):
             dh = self.dh[t + 1, 0:curr_num_sequences]  # (B, H)
             np.multiply(dh, h_minus_h_prod_grad[t + 1], out=buf_b_h)
             np.dot(buf_b_h, u_z, out=dh_next)  # (B, H) x (H, H) => (B, H)
@@ -739,7 +739,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
             # mult: (H, H1) x (H1, H2) = (H, H2),  mult: (H, ) x (H, H2)
             # now with batch rhr: (T-1, B, H, H)
             # mult: (H, H1) with (B, H1, H2) -> (B, H, H2),  mult: (B, H, ) with (B, H, H2), so we have to have loop
-            for b in xrange(curr_num_sequences):
+            for b in range(curr_num_sequences):
                 np.dot(u_h, rhr[t, b], out=buf_hh)
                 np.dot(buf_b_h[b], buf_hh, out=buf_b_h_2[b])
             dh_next += buf_b_h_2  # (B, H)

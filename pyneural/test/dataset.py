@@ -58,7 +58,7 @@ class InMemoryDataSetWithBoundaries:
         self.data = data
         self.labels = labels
         self.doc_ends = doc_ends
-        for i in xrange(len(doc_ends)-1):
+        for i in range(len(doc_ends)-1):
             assert doc_ends[i] < doc_ends[i+1]
 
         self.index = 0  # 0-based index of one past last read

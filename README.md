@@ -12,22 +12,24 @@ We consider multi-layer neural networks where the top layer is a scalar loss fun
 
 The concatenation of the former across all layers is the derivative of the full model and is used by the stochastic gradient descend algorithm to determine the next value of the full model. The latter is necessary for computing the former: it allows back-propagating the error from the top-most scalar layer incrementally across each layer going to the bottom layer. 
 
-The general framework for supporting the above is in file `neural_layer.py`. Auxiliary classes showing how to combine layers are in `layers.py`.
+The general framework for supporting the above is in file [neural_layer.py](pyneural/neural_layer.py). Auxiliary classes showing how to combine layers are in [layers.py](pyneural/layers.py).
 
-The framework requires and supports the model and gradient of the full network to be each inside a contiguous memory buffer. The nested components model and gradient are references to the appropriate places inside these memory buffers that are defined at the top-most enclosing network object. These references are set recursively during wiring. During the fitting procedure, the model and gradient buffers are updated strictly in-place and are *never* copied. These architectural features are critical for a very fast training procedure. The fitting procedure itself is inside `sgd.py`.
+The framework requires and supports the model and gradient of the full network to be each inside a contiguous memory buffer. The nested components model and gradient are references to the appropriate places inside these memory buffers that are defined at the top-most enclosing network object. These references are set recursively during wiring. During the fitting procedure, the model and gradient buffers are updated strictly in-place and are *never* copied. These architectural features are critical for a very fast training procedure. The fitting procedure itself is inside [sgd.py](pyneural/sgd.py).
 
-An unusual feature of this framework is that the RNN implementations are *vectorized on the time dimension* as well as the batch dimension. Tensorflow (as of 1.5.0), Cafe2 (as of 0.8.1) do not vectorize in the time dimension. The minimum necessary work is kept inside the RNN loop, its results are accumulated and the final matrix operations are applied as single operations across all time steps. This makes especially the backward step far more complex to implement but also much faster in a numpy-based implementation.
+This framework favors minimizing execution time almost unconditionally over minimizing memory consumption and implementation complexity. Any intermediate results that can cached to be used in back-propagation are cached instead of recomputed. Vectorization is used heavily. An unusual feature and conscious design choice is that the RNN implementations are *vectorized on the time dimension* as well as the batch dimension. Tensorflow (as of 1.5.0), Cafe2 (as of 0.8.1) do not vectorize in the time dimension. The minimum possible work is done inside the RNN loop, its results are accumulated and the final matrix operations are applied as single operations across all time steps. This makes especially the backward step far more complex to implement but also much faster in a numpy-based implementation.
+
 
 ## Build Instructions
 
-Framework works only with python 2.7. It has been extensively used on macOS (10.13.3 and similar) and ubuntu 16.04. The few python package dependencies are listed in `requirements.txt`. It is strongly recommended for dependency isolation to use a python [virtualenv](https://virtualenv.pypa.io/en/stable/). You can build egg or wheel distribution package using the usual `setuptools` mechanisms. For building the wheel package, install `wheel` and then issue `python setup.py bdist_wheel`
+Framework requires python 3.6 or newer. It has been extensively used on macOS (10.13.3 and similar) and ubuntu 16.04. The few python package dependencies are listed in [requirements.txt](requirements.txt). For dependency isolation it is strongly recommended to use a [python3 virtualenv](https://docs.python.org/3.6/library/venv.html) or [conda](https://docs.conda.io/en/latest/). You can build egg or wheel distribution package using the usual `setuptools` mechanisms. For building a wheel package, install `wheel` and then issue `python setup.py bdist_wheel`
 
 
 ## Testing and Correctness
 
-There is an extensive test suite using the python `unittest` framework. The full test suite can be invoked from the command line by issuing `python -m unittest discover -s pyneural/test -p "*_test.py"` from the top-level directory of the repository. It can also be invoked running by the packaging script `python setup.py test`
+There is an extensive test suite using the python `unittest` framework. It is recommended to use [nose](https://nose.readthedocs.io/en/latest/) for invoking the test suite. From the he top-level directory of the repository it can be invoked from the command line by issuing `python setup.py nosetests` or `python -m unittest discover -s pyneural/test -p "*_test.py"`.
 
-Anything having a gradient (all discrete layers and activation functions), as well as some composite networks, has a gradient check run as part of the test suite. General support for gradient checks is inside `gradient_check.py`. The directory `samples` contains several multi-layer networks with code that trains them and shows that the loss decreases during training.
+Anything having a gradient (all discrete layers and activation functions), as well as some composite networks, has a gradient check run as part of the test suite. General support for gradient checks is inside [gradient_check.py](pyneural/test/gradient_check.py). The directory [samples](pyneural/samples) contains several multi-layer networks with code that trains them and shows that the loss decreases during training.
+
 
 ## Build Optimizations 
 

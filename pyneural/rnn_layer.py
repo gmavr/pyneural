@@ -1,13 +1,14 @@
 import numpy as np
 
-import activation as ac
-from neural_base import ComponentNN, glorot_init
+from typing import Type, Union
+import pyneural.activation as ac
+from pyneural.neural_base import ComponentNN, glorot_init
 
 
 class RnnLayer(ComponentNN):
 
-    def __init__(self, dim_d, dim_h, max_seq_length, dtype, activation="tanh", bptt_steps=None, grad_clip_thres=None,
-                 asserts_on=True):
+    def __init__(self, dim_d: int, dim_h: int, max_seq_length: int, dtype: Union[Type[np.float32], Type[np.float64]],
+                 activation="tanh", bptt_steps=None, grad_clip_thres=None, asserts_on=True) -> None:
         """ Standard Recurrent Neural Layer
 
         Args:
@@ -60,34 +61,34 @@ class RnnLayer(ComponentNN):
                   "bptt_steps": self.bptt_steps, "activation": self.activation.__name__})
         return d
 
-    def get_max_seq_length(self):
+    def get_max_seq_length(self) -> int:
         return self._max_seq_length
 
-    def get_last_seq_length(self):
+    def get_last_seq_length(self) -> int:
         return self._seq_length
-    
-    def set_init_h(self, init_h):
+
+    def set_init_h(self, init_h: np.array) -> None:
         if self.asserts_on:
             assert init_h.shape == (self.dim_h, )
             assert init_h.dtype == self._dtype
         self.hs[self._seq_length] = init_h  # this makes a copy of init_h, which is desirable
 
-    def reset_last_hidden(self):
+    def reset_last_hidden(self) -> None:
         self.hs[self._seq_length].fill(0.0)
 
-    def model_normal_init(self, sd):
+    def model_normal_init(self, sd) -> None:
         assert self._model is not None
         np.copyto(self.w_xh, sd * np.random.standard_normal((self.dim_h, self.dim_d)).astype(self._dtype))
         np.copyto(self.w_hh, sd * np.random.standard_normal((self.dim_h, self.dim_h)).astype(self._dtype))
         self.b.fill(0.0)
 
-    def model_glorot_init(self):
+    def model_glorot_init(self) -> None:
         assert self._model is not None
         np.copyto(self.w_xh, glorot_init((self.dim_h, self.dim_d)).astype(self._dtype))
         np.copyto(self.w_hh, glorot_init((self.dim_h, self.dim_h)).astype(self._dtype))
         self.b.fill(0.0)
 
-    def model_identity_glorot_init(self, scale_factor=0.5):
+    def model_identity_glorot_init(self, scale_factor=0.5) -> None:
         assert self._model is not None
         np.copyto(self.w_xh, glorot_init((self.dim_h, self.dim_d)).astype(self._dtype))
         np.multiply(scale_factor, np.eye(self.dim_h, dtype=self._dtype), out=self.w_hh)
@@ -112,7 +113,7 @@ class RnnLayer(ComponentNN):
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
         z_partial_2 = self.dim_h_buf
-        for t in xrange(self._seq_length):
+        for t in range(self._seq_length):
             # ((H1, H2) x (H2, )) returns (H1, )
             np.dot(self.w_hh, self.hs[t], out=z_partial_2)
             z_partial_2 += z_partial[t]
@@ -121,7 +122,7 @@ class RnnLayer(ComponentNN):
         self.y = self.hs[1:(self._seq_length+1)]
         return self.y
 
-    def backwards(self, delta_upper):
+    def backwards(self, delta_upper: np.array) -> np.array:
         if self.asserts_on:
             assert delta_upper.shape == (self._seq_length, self.dim_h)
 
@@ -134,7 +135,7 @@ class RnnLayer(ComponentNN):
         if self._seq_length <= self.bptt_steps:
             self.__back_propagation_loop(delta_upper, 0, self._seq_length)
         else:
-            for start_t in xrange(self._seq_length - self.bptt_steps, -1, -self.bptt_steps):
+            for start_t in range(self._seq_length - self.bptt_steps, -1, -self.bptt_steps):
                 self.__back_propagation_loop(delta_upper, start_t, start_t + self.bptt_steps)
             if self._seq_length % self.bptt_steps != 0:
                 # first chunk in the batch has fewer than self.bptt_steps samples
@@ -156,7 +157,7 @@ class RnnLayer(ComponentNN):
 
         return delta_err
 
-    def __back_propagation_loop(self, delta_upper, low_t, high_t):
+    def __back_propagation_loop(self, delta_upper: np.array, low_t: int, high_t: int):
         """
         Reverse iteration starting from high_t - 1, finishing at low_t, both inclusive.
         Populates self.dh_raw[low_t:high_t]
@@ -169,7 +170,7 @@ class RnnLayer(ComponentNN):
         dh_next.fill(0.0)
         dh = self.dh
         ac_grad = self.ac_grad
-        for t in xrange(high_t - 1, low_t - 1, -1):
+        for t in range(high_t - 1, low_t - 1, -1):
             # delta_upper[t] is my delta_s(t) * W_hy
             # dh_raw[j] is my delta(j, num_steps - 1) defined in formula (13), computed incrementally with (14) :
             np.add(delta_upper[t], dh_next, out=dh)
@@ -307,7 +308,7 @@ class RnnLayer2(ComponentNN):
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
         z_partial_2 = self.dim_h_buf
-        for t in xrange(self._seq_length):
+        for t in range(self._seq_length):
             # ((H1, H2) x (H2, )) returns (H1, )
             np.dot(self.w_hh, self.hs[t], out=z_partial_2)
             z_partial_2 += z_partial[t]
@@ -331,7 +332,7 @@ class RnnLayer2(ComponentNN):
         if self._seq_length <= self.bptt_steps:
             self.__back_propagation_loop(delta_upper, 0, self._seq_length)
         else:
-            for start_t in xrange(self._seq_length - self.bptt_steps, -1, -self.bptt_steps):
+            for start_t in range(self._seq_length - self.bptt_steps, -1, -self.bptt_steps):
                 self.__back_propagation_loop(delta_upper, start_t, start_t + self.bptt_steps)
             if self._seq_length % self.bptt_steps != 0:
                 # first chunk in the batch has fewer than self.bptt_steps samples
@@ -366,7 +367,7 @@ class RnnLayer2(ComponentNN):
         # dh[t] is my delta(t, T)
         dh_next = self.dh_next
         self.dh[high_t - 1] = delta_upper[high_t - 1]
-        for t in xrange(high_t - 2, low_t - 1, -1):
+        for t in range(high_t - 2, low_t - 1, -1):
             np.multiply(self.dh[t + 1], self.ac_grad[t+1], out=self.dim_h_buf)  # (H, )
             # (H1, ) x (H1, H2) = (H2, )
             np.dot(self.dim_h_buf, self.w_hh, out=dh_next)

@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
+import pyneural.test.gradient_check_test_shared as gcs
 from pyneural.layers import BidirRnnSoftMax, EmbeddingBidirRnnSoftMax
 
 
@@ -39,7 +39,7 @@ class TestBidirRnnSoftMax(gcs.GradientCheckTestShared):
 
         self.assertEqual(BidirRnnSoftMax.get_num_p_static(dim_d, dim_h, dim_k), loss_nn.get_num_p())
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model, data, labels, h_init = create_random_data_dense_inputs(loss_nn, num_samples)
 
         loss_nn.init_parameters_storage(model)
@@ -55,7 +55,7 @@ class TestBidirRnnSoftMax(gcs.GradientCheckTestShared):
 
         loss_nn = EmbeddingBidirRnnSoftMax(dimensions, num_samples, dtype=dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         model, data, labels, h_init = create_random_data_embedding_inputs(loss_nn, num_samples)
 
         loss_nn.init_parameters_storage(model)

@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.ce_softmax_layer as ce_sm
+import pyneural.test.gradient_check_test_shared as gcs
 
 
 class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
@@ -13,7 +13,7 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
         dim_x, dim_k = ce_sm_layer.dim_d, ce_sm_layer.dim_k
         dtype, num_params = ce_sm_layer.get_dtype(), ce_sm_layer.get_num_p()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         x = np.random.standard_normal((num_samples, dim_x)).astype(dtype)
         model = 0.1 * np.random.standard_normal(num_params).astype(dtype)
         labels = np.random.randint(0, dim_k, num_samples)
@@ -75,7 +75,7 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
 
         x = np.zeros((max_seq_length, batch_size, dim_x), dtype=dtype)
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         ce_batch.model_normal_init(sd=0.1)
 
         # set first sequence to 0 length to test that case
@@ -122,8 +122,8 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
         ], dtype=dtype)
         seq_lengths = np.array([1, 3, 2, 3, 1], dtype=np.int)
 
-        self.assertEquals(data.shape, (batch_size, max_seq_length, dim_d))
-        self.assertEquals(seq_lengths.shape, (batch_size,))
+        self.assertEqual(data.shape, (batch_size, max_seq_length, dim_d))
+        self.assertEqual(seq_lengths.shape, (batch_size,))
 
         data2 = np.empty((max_seq_length, batch_size, dim_d), dtype=dtype)
         for i in range(max_seq_length):
@@ -136,12 +136,12 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
             [0, 0, 0, 0, 0],
         ])
 
-        self.assertEquals(labels.shape, (max_seq_length, batch_size))
+        self.assertEqual(labels.shape, (max_seq_length, batch_size))
 
         ce = ce_sm.CESoftmaxLayer(dim_k, dim_d, dtype)
         ce.init_parameters_storage()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         ce.model_normal_init(0.1)
 
         ce_batch = ce_sm.CESoftmaxLayerBatch(dim_k, dim_d, max_seq_length, batch_size, dtype)
@@ -174,10 +174,10 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
         delta_err_t = ce_batch.backwards()
 
         accum_grad = np.zeros(ce.get_num_p(), dtype=dtype)
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             # need to forward propagate again because forward_batch(data) and back_propagation_batch(delta_upper2)
             # remember and re-use last data
-            ce.forward(data2[xrange(0, seq_lengths[i]), i], labels[xrange(0, seq_lengths[i]), i])
+            ce.forward(data2[range(0, seq_lengths[i]), i], labels[range(0, seq_lengths[i]), i])
             d1 = ce.backwards()
             accum_grad += ce.get_gradient()
             # first non-zero part should be identical to one retrieved from non-batch

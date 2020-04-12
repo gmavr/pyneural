@@ -1,11 +1,11 @@
 import numpy as np
 
-import embedding_cy
-from neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
+import pyneural.embedding_cy as embedding_cy
+from pyneural.neural_base import ComponentNN, BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
 class EmbeddingLayer(ComponentNN):
-    def __init__(self, dim_k, dim_d, dtype, asserts_on=True):
+    def __init__(self, dim_k: int, dim_d: int, dtype, asserts_on=True):
         self.dim_k = dim_k
         self.dim_d = dim_d
         super(EmbeddingLayer, self).__init__(self.dim_k * self.dim_d, dtype)
@@ -26,7 +26,7 @@ class EmbeddingLayer(ComponentNN):
         assert embedding_matrix_in.shape == (self.dim_k, self.dim_d)
         np.copyto(self._model, np.reshape(embedding_matrix_in, (self._num_p,)))
 
-    def model_normal_init(self, sd):
+    def model_normal_init(self, sd: float):
         assert self._model is not None
         np.copyto(self.embedding_matrix, sd * np.random.standard_normal((self.dim_k, self.dim_d)).astype(self._dtype))
 
@@ -48,7 +48,7 @@ class EmbeddingLayer(ComponentNN):
 
         return self.y
 
-    def backwards(self, delta_err):
+    def backwards(self, delta_err) -> None:
         if self.asserts_on:
             assert delta_err.shape == (self._num_samples, self.dim_d)
             assert delta_err.dtype == self._dtype
@@ -79,7 +79,7 @@ class EmbeddingLayer(ComponentNN):
 
 
 class EmbeddingLayerBatch(BatchSequencesComponentNN):
-    def __init__(self, dim_k, dim_d, max_seq_length, max_batch_size, dtype, asserts_on=True):
+    def __init__(self, dim_k: int, dim_d: int, max_seq_length: int, max_batch_size: int, dtype, asserts_on=True):
         self.dim_k = dim_k
         self.dim_d = dim_d
         super(EmbeddingLayerBatch, self).__init__(self.dim_k * self.dim_d, max_seq_length, max_batch_size, dtype)
@@ -103,7 +103,7 @@ class EmbeddingLayerBatch(BatchSequencesComponentNN):
         assert embedding_matrix_in.shape == (self.dim_k, self.dim_d)
         np.copyto(self._model, np.reshape(embedding_matrix_in, (self._num_p, )))
 
-    def model_normal_init(self, sd):
+    def model_normal_init(self, sd: float):
         assert self._model is not None
         np.copyto(self.embedding_matrix, sd * np.random.standard_normal((self.dim_k, self.dim_d)).astype(self._dtype))
 
@@ -128,7 +128,7 @@ class EmbeddingLayerBatch(BatchSequencesComponentNN):
         embedding_cy.forward_batch(self.x, self.embedding_matrix, y, self._seq_lengths)
         return y
 
-    def backwards(self, delta_err):
+    def backwards(self, delta_err: np.array) -> None:
         if self.asserts_on:
             assert delta_err.shape == (self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_d)
             assert delta_err.dtype == self._dtype
@@ -216,7 +216,7 @@ class EmbeddingLayerPy(ComponentNN):
         self.y = self.embedding_matrix[x]
         return self.y
 
-    def backwards(self, delta_err):
+    def backwards(self, delta_err) -> None:
         if self.asserts_on:
             assert delta_err.shape == (self._num_samples, self.dim_d)
             assert delta_err.dtype == self._dtype
@@ -231,7 +231,7 @@ class EmbeddingLayerPy(ComponentNN):
 
         # Unfortunately this can't be vectorized, because the same element self._grad2[i1] may need to be updated
         # multiple times. Numpy doc: "In particular, repeated indices do not result in the value getting added twice"
-        for i in xrange(self._num_samples):
+        for i in range(self._num_samples):
             self._grad2[self.x[i], :] += delta_err[i]  # += operator is in-place
 
         # derivative wr to non-continuous quantities is undefined
@@ -300,7 +300,7 @@ class EmbeddingLayerBatchPy(BatchSequencesComponentNN):
 
         # following is much slower than the looking all indices and then zeroing out the extra ones
         # self.y = np.empty((x.shape[0], x.shape[1], self.dim_d), dtype=self._dtype)
-        # for j in xrange(x.shape[1]):
+        # for j in range(x.shape[1]):
         #     if 0 < seq_lengths[j]:
         #         # slicing twice also across non-leading dimensions, can't be fast
         #         self.y[:seq_lengths[j], j] = self.embedding_matrix[x[:seq_lengths[j], j]]
@@ -309,7 +309,7 @@ class EmbeddingLayerBatchPy(BatchSequencesComponentNN):
 
         return self.y
 
-    def backwards(self, delta_err):
+    def backwards(self, delta_err) -> None:
         if self.asserts_on:
             assert delta_err.shape == (self._curr_seq_length_dim_max, self._curr_num_sequences, self.dim_d)
             assert delta_err.dtype == self._dtype
@@ -323,16 +323,16 @@ class EmbeddingLayerBatchPy(BatchSequencesComponentNN):
         # multiple times. Numpy doc: "In particular, repeated indices do not result in the value getting added twice"
         # Memory access pattern of double loop is not ideal, but restructuring the loops as commented out did not
         # improve run-time even for large dimensionalities.
-        for j in xrange(self._curr_num_sequences):
-            for i in xrange(self._seq_lengths[j]):
+        for j in range(self._curr_num_sequences):
+            for i in range(self._seq_lengths[j]):
                 self._grad2[self.x[i, j], :] += delta_err[i, j]  # += operator is in-place
 
         # min_seq_length = np.min(self._seq_lengths)
-        # for i in xrange(min_seq_length):
-        #     for j in xrange(self._curr_num_sequences):
+        # for i in range(min_seq_length):
+        #     for j in range(self._curr_num_sequences):
         #         self._grad2[self.x[i, j], :] += delta_err[i, j]
-        # for j in xrange(self._curr_num_sequences):
-        #     for i in xrange(min_seq_length, self._seq_lengths[j]):
+        # for j in range(self._curr_num_sequences):
+        #     for i in range(min_seq_length, self._seq_lengths[j]):
         #         self._grad2[self.x[i, j], :] += delta_err[i, j]
 
         # derivative wr to non-continuous quantities is undefined

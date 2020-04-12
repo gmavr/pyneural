@@ -1,12 +1,12 @@
 import numpy as np
 
-import activation as ac
-from neural_base import BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
+import pyneural.activation as ac
+from pyneural.neural_base import BatchSequencesComponentNN, glorot_init, validate_x_and_lengths
 
 
 class RnnBatchLayer(BatchSequencesComponentNN):
     """ Standard Rnn Layer.
-    
+
     First dimension is time, the second dimension is batch (sequence index).
     """
     def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, activation='tanh', bptt_steps=None,
@@ -54,7 +54,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
     def get_dimensions(self):
         return self.dim_d, self.dim_h
 
-    def set_init_h(self, init_h):
+    def set_init_h(self, init_h: np.array) -> None:
         """
         Client must pass here init_h.shape[0] == x.shape[1] in the next invocation of forward_batch().
         The code does not validate this.
@@ -69,7 +69,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
     def reset_last_hidden(self):
         self.hs_last.fill(0.0)
 
-    def model_normal_init(self, sd):
+    def model_normal_init(self, sd: float):
         assert self._model is not None
         np.copyto(self.w_xh, sd * np.random.standard_normal((self.dim_h, self.dim_d)).astype(self._dtype))
         np.copyto(self.w_hh, sd * np.random.standard_normal((self.dim_h, self.dim_h)).astype(self._dtype))
@@ -116,14 +116,14 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
         z_partial_2 = self.dh_next[0:curr_num_sequences]  # re-use scratch space and trim
-        for t in xrange(self._curr_max_seq_length):
+        for t in range(self._curr_max_seq_length):
             # non-batch was  z_partial_2:  ((H1, H2) x (H2, )) returns (H1, )
             # now with batch z_partial_2:  ((B, H2) x (H1, H2)^T) returns (B, H1)
             np.dot(self.hs[t], self.w_hh.T, out=z_partial_2)
             z_partial_2 += z_partial[t]
             self.activation(z_partial_2, out=self.hs[t + 1])  # (B, H)
 
-        for s in xrange(curr_num_sequences):
+        for s in range(curr_num_sequences):
             seq_length = seq_lengths[s]
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[seq_length, s]
@@ -165,7 +165,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         if curr_max_seq_length <= self.bptt_steps:
             self.__back_propagation_loop(delta_upper, 0, curr_max_seq_length)
         else:
-            for start_t in xrange(curr_max_seq_length - self.bptt_steps, -1, -self.bptt_steps):
+            for start_t in range(curr_max_seq_length - self.bptt_steps, -1, -self.bptt_steps):
                 self.__back_propagation_loop(delta_upper, start_t, start_t + self.bptt_steps)
             if curr_max_seq_length % self.bptt_steps != 0:
                 # first chunk of the sequences in the batch is less than self.bptt_steps samples
@@ -182,7 +182,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
         self.dw_xh.fill(0.0)
         self.dw_hh.fill(0.0)
         hxd_array, hxh_array = self.hxd_array, self.hxh_array  # this seems to make a difference in run-time
-        for t in xrange(curr_max_seq_length):
+        for t in range(curr_max_seq_length):
             # (H, D) = (H, B) x (B, D) is the sum of outer products (H, 1) x (1, D) over the B sequences at time t
             # self.dw_xh += np.dot(dh_raw[t].T, self.x[t])
             np.dot(dh_raw[t].T, self.x[t], out=hxd_array)
@@ -227,7 +227,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
             dh = self.dh[0:self._curr_num_sequences]
         ac_grad = self.ac_grad
         dh_next.fill(0.0)
-        for t in xrange(high_t - 1, low_t - 1, -1):
+        for t in range(high_t - 1, low_t - 1, -1):
             # dh = delta_upper[t] + dh_next  # select at 1st dim from (T, B, H) : (H, ) -> (B, H)
             np.add(delta_upper[t], dh_next, out=dh)
             np.multiply(dh, ac_grad[t], out=self.dh_raw[t])
@@ -276,7 +276,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
 
 class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
     """ Same as RnnBatchLayer but time indexes the second dimension instead of the first.
-    
+
     RnnBatchLayer is faster. Only use this version if transposing would be necessary and the total cost is more.
     """
 
@@ -309,7 +309,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
                   "bptt_steps": self.bptt_steps, "activation": self.activation.__name__})
         return d
 
-    def set_init_h(self, init_h):
+    def set_init_h(self, init_h: np.array) -> None:
         """
         Client must pass here init_h.shape[0] == x.shape[1] in the next invocation of forward_batch().
         The code does not validate this.
@@ -358,14 +358,14 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
 
         # The hidden state passes through the non-linearity, therefore it cannot be optimized
         # as summations over samples. A loop is necessary.
-        for t in xrange(self._curr_max_seq_length):
+        for t in range(self._curr_max_seq_length):
             # ((H, H) x (B, H)^T) returns (H, B)
             # z_partial_2 = np.dot(self.w_hh, self.hs[:, t].T)
             # ((B, H) x (H, H)^T) returns (B, H)
             z_partial_2 = np.dot(self.hs[:, t], self.w_hh.T)
             self.hs[:, t + 1] = self.activation(z_partial[:, t] + z_partial_2)  # (B, H)
 
-        for s in xrange(self._curr_num_sequences):
+        for s in range(self._curr_num_sequences):
             seq_length = seq_lengths[s]
             # remember each sequence's last hidden state
             self.hs_last[s] = self.hs[s, seq_length, :]

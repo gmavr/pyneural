@@ -1,17 +1,16 @@
-import cPickle as pickle
 import datetime
 import glob
 import json
 import os.path as op
+import pickle
 import random
 import time
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 import numpy as np
 
 
-class SgdSolver(object):
-    __metaclass__ = ABCMeta
+class SgdSolver(ABC):
 
     # Practical resources for SGD fitting and SGD variations:
     # http://sebastianruder.com/optimizing-gradient-descent/
@@ -246,7 +245,7 @@ class SgdSolver(object):
         self._time_mark = time.time()
 
         # iteration_index is 1-based, self._start_iteration_index is 0-based
-        for iteration_index in xrange(self._start_iteration_index + 1, self._last_iteration_index + 1):
+        for iteration_index in range(self._start_iteration_index + 1, self._last_iteration_index + 1):
             loss, update_x = self._get_update_and_loss()
 
             if np.isinf(loss):
@@ -397,7 +396,7 @@ class SgdSolver(object):
 
         print("iteration %d: Storing model and rnd state under %s. Time: %s"
               % (iteration_index, self.root_dir, '{:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now())))
-        
+
         model_write_path = "%s/model_%d.npy" % (self.root_dir, iteration_index)
         random_state_write_path = "%s/rnd_state_%d.npy" % (self.root_dir, iteration_index)
         np.save(model_write_path, self._x)
@@ -411,10 +410,10 @@ class SgdSolver(object):
 
     def _load_saved_state(self, min_iteration_index):
         """ Loads previously saved model and solver parameters.
-        
+
         If an iteration number is specified it looks for file name that corresponds to it
         and loads. If no iteration number is specified, it finds the highest saved one.
-        
+
         Args:
             min_iteration_index: minimum iteration to look for or None if
         Returns:
@@ -620,4 +619,3 @@ class SgdSolverStandard(SgdSolver):
     def _get_update_and_loss(self):
         loss, grad = self._objective_func()
         return loss, self._lr * grad
-

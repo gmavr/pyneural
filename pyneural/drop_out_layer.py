@@ -3,16 +3,16 @@ import numpy as np
 
 class DropoutLayer(object):
     """ Dropout layer. In-place modification of forward inputs and backwards delta error.
-    
+
     At training time randomly zeroes each input with probability drop_probability.
     At test / evaluation time it does not drop any input but scales all inputs so that the average input is at the same
     scale as the average input with dropout at training time.
-    
+
     The need to remember the drop_probability used during training and scale all inputs at evaluation time is a
-    drawback that InvertedDropoutLayer was made to address.
-    
+    drawback that InvertedDropoutLayer addresses by its design.
+
     """
-    def __init__(self, drop_probability):
+    def __init__(self, drop_probability: float):
         """
         Args:
             drop_probability: Set each input to 0 w.p. drop_probability otherwise leave unchanged
@@ -23,10 +23,10 @@ class DropoutLayer(object):
 
     def get_display_dict(self):
         return {"retain_probability": self._retain_probability}
-    
+
     def forward_train(self, x):
         """ Forward pass during training.
-        
+
         Drops each coordinate randomly with probability (1 - retain_probability).
         Changes the supplied input x *in-place* and returns reference to it.
         If the lower layer retains a reference to its output, then its content will be changed.
@@ -38,7 +38,7 @@ class DropoutLayer(object):
 
     def forward_eval(self, x):
         """ Forward pass during evaluation / testing.
-        
+
         Retains all input dimensions but scales them down by the retain_probability
         Changes the supplied input x *in-place* and returns reference to it.
         So if the lower layer retains a reference to its output, then its content will be changed.
@@ -74,12 +74,12 @@ class DropoutLayer(object):
 
 class InvertedDropoutLayer(object):
     """ Inverted Dropout layer. No scaling needed at evaluation / test time.
-    
+
     Unlike DropoutLayer, I could not get gradient_check to pass with updating x and delta_err in-place.
     This layer keeps at training its own copy or y and delta_err.
     """
 
-    def __init__(self, drop_probability):
+    def __init__(self, drop_probability: float):
         """
          Args:
              drop_probability: Set each input to 0 w.p. drop_probability,
@@ -100,7 +100,7 @@ class InvertedDropoutLayer(object):
 
     def forward_train(self, x):
         """ Forward pass during training.
-        
+
         Drops each coordinate randomly with probability (1 - retain_probability) and scales it by 1 / retain_probability
         """
         self._scaled_drop_out_mask = np.random.binomial(1, self._retain_probability, size=x.shape).astype(x.dtype)
@@ -118,7 +118,7 @@ class InvertedDropoutLayer(object):
 
     def forward_eval(self, x):
         """ Forward pass during evaluation / testing.
-        
+
         The whole purpose of InvertedDropoutLayer is for this operation to be a NO-OP
         """
         self._y = x

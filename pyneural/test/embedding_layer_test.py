@@ -2,9 +2,9 @@ import unittest
 
 import numpy as np
 
-import gradient_check_test_shared as gcs
 import pyneural.ce_l2_loss as ce_l2_loss
 import pyneural.embedding_layer as em
+import pyneural.test.gradient_check_test_shared as gcs
 
 
 def create_random_data(em_object, num_samples, int_dtype):
@@ -13,7 +13,7 @@ def create_random_data(em_object, num_samples, int_dtype):
 
     x = np.random.randint(0, dim_k, num_samples, dtype=int_dtype)
 
-    y_true = np.empty((num_samples, dim_d), dtype=dtype)
+    y_true = np.zeros((num_samples, dim_d), dtype=dtype)
     for i in range(num_samples):
         # "auto-encoder" with added random noise
         y_true[i] = em_object.embedding_matrix[x[i]] + 0.01 * np.random.standard_normal(dim_d).astype(dtype)
@@ -49,7 +49,7 @@ def create_random_data_batch(em_object, max_seq_length, batch_size, int_dtype):
     # layer was initialized with
     seq_lengths = np.random.randint(1, max_seq_length, batch_size, dtype=np.int32)
     seq_lengths[0] = 0
-    for j in xrange(batch_size):
+    for j in range(batch_size):
         seq_length = seq_lengths[j]
         if seq_length > 0:
             x[0:seq_length, j] = np.random.randint(0, dim_k, seq_length)
@@ -77,7 +77,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         em_obj = em.EmbeddingLayer(dim_k, dim_d, dtype)
         em_obj.init_parameters_storage()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         em_obj.model_normal_init(0.1)
 
         em_obj_py = em.EmbeddingLayerPy(dim_k, dim_d, dtype)
@@ -92,9 +92,9 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
 
         x, _, delta_upper, seq_lengths = create_random_data_batch(em_obj_batch, max_seq_length, batch_size, int_dtype)
 
-        out = np.empty((max_seq_length, batch_size, dim_d), dtype=dtype)
+        out = np.zeros((max_seq_length, batch_size, dim_d), dtype=dtype)
         out_py = np.copy(out)
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             out[0:seq_lengths[i], i] = em_obj.forward(x[0:seq_lengths[i], i])
             out_py[0:seq_lengths[i], i] = em_obj_py.forward(x[0:seq_lengths[i], i])
             self.assertTrue(np.alltrue(np.equal(out, out_py)))
@@ -102,7 +102,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         out_batch = em_obj_batch.forward(x, seq_lengths)
         out_batch_py = em_obj_batch_py.forward(x, seq_lengths)
 
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             seq_length = seq_lengths[i]
             if seq_length != 0:
                 # check that the single sequence and the batch version return the same
@@ -116,7 +116,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         em_obj_batch_py.backwards(delta_upper)
 
         accum_grad = np.zeros(em_obj.get_num_p(), dtype=dtype)
-        for i in xrange(batch_size):
+        for i in range(batch_size):
             # need to forward propagate again because forward_batch(x) and back_propagation_batch(delta_upper)
             # remember and re-use last x
             em_obj.forward(x[0:seq_lengths[i], i])
@@ -143,7 +143,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
 
         loss_nn.init_parameters_storage()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         em_obj.model_normal_init(0.01)
         x, y_true = create_random_data(em_obj, num_samples, int_dtype)
 
@@ -168,7 +168,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
 
         loss_nn.init_parameters_storage()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         em_obj.model_normal_init(0.01)
         x, y_true = create_random_data(em_obj, num_samples, int_dtype)
 
@@ -186,7 +186,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         loss_and_layer = ce_l2_loss.BatchSequencesWithL2Loss(em_obj_batch, asserts_on=True)
         loss_and_layer.init_parameters_storage()
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         em_obj_batch.model_normal_init(0.1)
         # create data set to contain fewer sequences than the batch size
         x, y_true, _, seq_lengths = create_random_data_batch(em_obj_batch, max_seq_length, batch_size-2, int_dtype)
@@ -205,7 +205,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         dim_k, dim_d = 20, 3
         dtype = np.float32
 
-        np.random.seed(seed=47)
+        np.random.seed(47)
         delta_err = np.random.standard_normal((num_samples, dim_d)).astype(dtype)
         x = np.array([1, 0, 1, 19, 8], dtype=np.uint8)
 
