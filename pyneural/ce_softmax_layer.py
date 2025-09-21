@@ -15,7 +15,7 @@ class CESoftmaxLayer(LossNN):
     def __init__(self, dim_k, dim_d, dtype, asserts_on=True):
         self.dim_k, self.dim_d = dim_k, dim_d
         num_params = self.dim_k * self.dim_d + self.dim_k
-        super(CESoftmaxLayer, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.p_hat = None
         self.delta_err = None
         self.w = self.b = None
@@ -158,7 +158,7 @@ class CESoftmaxLayerFixedLength(LossNN):
     def __init__(self, dim_k, dim_d, seq_length, dtype, asserts_on=True):
         self.dim_k, self.dim_d, self.seq_length = dim_k, dim_d, seq_length
         num_params = self.dim_k * self.dim_d + self.dim_k
-        super(CESoftmaxLayerFixedLength, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.x, self.labels = None, None
         self.p_hat = np.empty((self.seq_length, self.dim_k), dtype=dtype)
         self.delta_err = np.empty((self.seq_length, self.dim_d), dtype=dtype)
@@ -269,7 +269,7 @@ class CESoftmaxLayerBatch(BatchSequencesLossNN):
         self.p_hat = None
         self.delta_err = None
         num_params = self.dim_k * self.dim_d + self.dim_k
-        super(CESoftmaxLayerBatch, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.w_hy = self.b = None
         self.dw_hy = self.db = None
         self.kxd_array = np.empty((self.dim_k, self.dim_d), dtype=self._dtype)

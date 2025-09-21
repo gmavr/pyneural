@@ -37,7 +37,7 @@ class BidirRnnLayer(ComponentNN):
             self.rnn_b = gru.GruLayer(self.dim_d, self.dim_h, max_seq_length, dtype=dtype, asserts_on=asserts_on)
         else:
             raise ValueError("Invalid cell type")
-        super(BidirRnnLayer, self).__init__(self.rnn_f.get_num_p() + self.rnn_b.get_num_p(), dtype)
+        super().__init__(self.rnn_f.get_num_p() + self.rnn_b.get_num_p(), dtype)
         self.delta_error = np.empty((max_seq_length, self.dim_d), dtype=dtype)
 
     def get_display_dict(self):

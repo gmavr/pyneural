@@ -38,7 +38,7 @@ class DoubleNeuralLayerWithDropoutL2Loss(LossNN):
         self.loss = None
 
         num_p = self.n_layer_1.get_num_p() + self.n_layer_2.get_num_p()
-        super(DoubleNeuralLayerWithDropoutL2Loss, self).__init__(num_p, n_layer_1.get_dtype())
+        super().__init__(num_p, n_layer_1.get_dtype())
 
     def get_display_dict(self):
         d = self._init_display_dict()

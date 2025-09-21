@@ -8,7 +8,7 @@ class EmbeddingLayer(ComponentNN):
     def __init__(self, dim_k: int, dim_d: int, dtype, asserts_on=True):
         self.dim_k = dim_k
         self.dim_d = dim_d
-        super(EmbeddingLayer, self).__init__(self.dim_k * self.dim_d, dtype)
+        super().__init__(self.dim_k * self.dim_d, dtype)
         self.dk_threshold = int(0.40 * self.dim_k * self.dim_d)
         self._num_samples = 0
         self.embedding_matrix = None
@@ -82,7 +82,7 @@ class EmbeddingLayerBatch(BatchSequencesComponentNN):
     def __init__(self, dim_k: int, dim_d: int, max_seq_length: int, max_batch_size: int, dtype, asserts_on=True):
         self.dim_k = dim_k
         self.dim_d = dim_d
-        super(EmbeddingLayerBatch, self).__init__(self.dim_k * self.dim_d, max_seq_length, max_batch_size, dtype)
+        super().__init__(self.dim_k * self.dim_d, max_seq_length, max_batch_size, dtype)
         self.y = np.empty((max_seq_length, max_batch_size, self.dim_d), dtype=dtype)
         self.dk_threshold = int(0.20 * self.dim_k * self.dim_d)
         self.embedding_matrix = None
@@ -175,7 +175,7 @@ class EmbeddingLayerPy(ComponentNN):
     def __init__(self, dim_k, dim_d, dtype, asserts_on=True):
         self.dim_k = dim_k
         self.dim_d = dim_d
-        super(EmbeddingLayerPy, self).__init__(self.dim_k * self.dim_d, dtype)
+        super().__init__(self.dim_k * self.dim_d, dtype)
         # dk_threshold is reasonable but mostly arbitrary, little attempt was made to determine it by measuring effect.
         # It was found clearly advantageous to selectively zero out gradient for _num_samples < < dim_k * dim_d as
         # opposed to setting the whole gradient array to 0.
@@ -257,7 +257,7 @@ class EmbeddingLayerBatchPy(BatchSequencesComponentNN):
     def __init__(self, dim_k, dim_d, max_seq_length, max_batch_size, dtype, asserts_on=True):
         self.dim_k = dim_k
         self.dim_d = dim_d
-        super(EmbeddingLayerBatchPy, self).__init__(self.dim_k * self.dim_d, max_seq_length, max_batch_size, dtype)
+        super().__init__(self.dim_k * self.dim_d, max_seq_length, max_batch_size, dtype)
         self.embedding_matrix = None
         self._grad2 = None
         self.x = self.y = None

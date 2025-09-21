@@ -52,7 +52,7 @@ class TestGru(gcs.GradientCheckTestShared):
             [[-5.0, 0.1, 0.2], [2.7, 9.1, -2.0], [2.1, -1.5, 1.4], [0.0, 0.0, 0.0]],
             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             ], dtype=dtype)
-        seq_lengths = np.array([1, 3, 2, 3, 0], dtype=np.int)
+        seq_lengths = np.array([1, 3, 2, 3, 0], dtype=int)
         self.assertEqual(seq_lengths.shape, (batch_size, ))
         self.assertEqual(data_t.shape, (batch_size, max_seq_length, dim_d))
 
@@ -101,9 +101,8 @@ class TestGru(gcs.GradientCheckTestShared):
 
             # check 0-padded hidden state and returned error for batched version
             if seq_length < max_seq_length:
-                # numpy returns bool_ which needs cast to bool
-                self.assertTrue(bool(np.alltrue(np.equal(out_hs_batch[seq_length:max_seq_length, i], 0.0))))
-                self.assertTrue(np.alltrue(np.equal(delta_err_batch[seq_length:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(out_hs_batch[seq_length:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(delta_err_batch[seq_length:max_seq_length, i], 0.0)))
 
             # verify batched version's non-0-padded hidden state and error is same as non-batched
             hs_first = out_hs[i, 0:seq_length]
@@ -136,9 +135,8 @@ class TestGru(gcs.GradientCheckTestShared):
 
             # check 0-padded hidden state and returned error for batched version
             if seq_length < max_seq_length:
-                # numpy returns bool_ which needs cast to bool
-                self.assertTrue(bool(np.alltrue(np.equal(out_hs_batch[seq_length:max_seq_length, i], 0.0))))
-                self.assertTrue(np.alltrue(np.equal(delta_err_batch[seq_length:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(out_hs_batch[seq_length:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(delta_err_batch[seq_length:max_seq_length, i], 0.0)))
 
             # verify batched version's non-0-padded hidden state and error is same as non-batched
             hs_first = out_hs[i, 0:seq_length]

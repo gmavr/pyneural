@@ -3,7 +3,7 @@ from cython cimport view
 import numpy as np
 cimport numpy as np
 
-from ctypes cimport np_floats_t, np_length_ints_t, np_index_ints_t
+from pyneural.ctypes cimport np_floats_t, np_length_ints_t, np_index_ints_t
 
 """
 Cython implementation of components of embedding layers providing substantial speed up over python-only implementation.

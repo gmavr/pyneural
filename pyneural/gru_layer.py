@@ -16,7 +16,7 @@ class GruLayer(ComponentNN):
     def __init__(self, dim_d, dim_h, max_seq_length, dtype, asserts_on=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_p = 3 * self.dim_h * self.dim_d + 3 * self.dim_h * self.dim_h + 3 * self.dim_h
-        super(GruLayer, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         self.asserts_on = asserts_on
         self._seq_length = 0  # must be 0 before the first iteration
         self._max_seq_length = max_seq_length
@@ -426,7 +426,7 @@ class GruBatchLayer(BatchSequencesComponentNN):
     def __init__(self, dim_d, dim_h, max_seq_length, max_batch_size, dtype, asserts_on=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_p = 3 * self.dim_h * self.dim_d + 3 * self.dim_h * self.dim_h + 3 * self.dim_h
-        super(GruBatchLayer, self).__init__(num_p, max_seq_length, max_batch_size, dtype)
+        super().__init__(num_p, max_seq_length, max_batch_size, dtype)
         self.asserts_on = asserts_on
         self._seq_length = 0  # must be 0 before the first iteration
         self._max_seq_length = max_seq_length

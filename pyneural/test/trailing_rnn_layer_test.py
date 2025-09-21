@@ -125,7 +125,7 @@ class TrailingRnnTest(gcs.GradientCheckTestShared):
         # setting the corresponding x and y to be all 0s is accepted
         y[1, :] = 0.0
         _, _, delta_err = loss_and_layer.forward_backwards(x, y, seq_lengths)
-        self.assertTrue(np.alltrue(np.equal(delta_err[:, 0, :], 0.0)))
+        self.assertTrue(np.all(np.equal(delta_err[:, 0, :], 0.0)))
 
 
 if __name__ == "__main__":

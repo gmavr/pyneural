@@ -180,48 +180,48 @@ def test_with_boundaries():
     offset2 += len(data1)
     assert offset2 == 2  # first doc partial
     assert not boundary
-    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
-    assert np.alltrue(np.equal(labels1, labels1[offset1:offset2]))
+    assert np.all(np.equal(data1, data[offset1:offset2]))
+    assert np.all(np.equal(labels1, labels1[offset1:offset2]))
 
     offset1 = offset2
     data1, labels1, boundary = dataset.get_n_next(batch_size)
     offset2 += len(data1)
     assert offset2 == 3  # first doc fully read
     assert boundary
-    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
-    assert np.alltrue(np.equal(labels1, labels1[offset1:offset2]))
+    assert np.all(np.equal(data1, data[offset1:offset2]))
+    assert np.all(np.equal(labels1, labels1[offset1:offset2]))
 
     offset1 = offset2
     data1, labels1, boundary = dataset.get_n_next(batch_size)
     offset2 += len(data1)
     assert offset2 == 4  # second doc fully read
     assert boundary
-    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
-    assert np.alltrue(np.equal(labels1, labels[offset1:offset2]))
+    assert np.all(np.equal(data1, data[offset1:offset2]))
+    assert np.all(np.equal(labels1, labels[offset1:offset2]))
 
     offset1 = offset2
     data1, labels1, boundary = dataset.get_n_next(batch_size)
     offset2 += len(data1)
     assert offset2 == 6  # third doc fully read
     assert boundary
-    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
-    assert np.alltrue(np.equal(labels1, labels[offset1:offset2]))
+    assert np.all(np.equal(data1, data[offset1:offset2]))
+    assert np.all(np.equal(labels1, labels[offset1:offset2]))
 
     offset1, offset2 = 0, 0
     data1, labels1, boundary = dataset.get_n_next(batch_size)
     offset2 += len(data1)
     assert offset2 == 2  # first doc partial
     assert not boundary
-    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
-    assert np.alltrue(np.equal(labels1, labels[offset1:offset2]))
+    assert np.all(np.equal(data1, data[offset1:offset2]))
+    assert np.all(np.equal(labels1, labels[offset1:offset2]))
 
     offset1 = offset2
     data1, labels1, boundary = dataset.get_n_next(batch_size)
     offset2 += len(data1)
     assert offset2 == 3  # first doc fully read
     assert boundary
-    assert np.alltrue(np.equal(data1, data[offset1:offset2]))
-    assert np.alltrue(np.equal(labels1, labels1[offset1:offset2]))
+    assert np.all(np.equal(data1, data[offset1:offset2]))
+    assert np.all(np.equal(labels1, labels1[offset1:offset2]))
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ class RnnLayer(ComponentNN):
         """
         self.dim_d, self.dim_h = dim_d, dim_h
         num_p = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
-        super(RnnLayer, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
         self._seq_length = 0  # must be 0 before the first iteration
         self._max_seq_length = max_seq_length
@@ -225,7 +225,7 @@ class RnnLayer2(ComponentNN):
                  asserts_on=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_p = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
-        super(RnnLayer2, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
         self._seq_length = 0  # must be 0 before the first iteration
         self._max_seq_length = max_seq_length

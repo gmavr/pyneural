@@ -53,7 +53,7 @@ class CRFLayerTest(gcs.GradientCheckTestShared):
         # verify that explicitly collecting the scores of all sequences (cost T^K) is the same as the recurrence
         # (dynamic programming) method (cost T*K^2) with high numerical precision
 
-        seq1 = np.empty(num_samples, dtype=np.int)
+        seq1 = np.empty(num_samples, dtype=int)
         # scores[k] is sum of exp(score) of all possible paths that end in label k.
         scores = np.zeros(dim_k, dtype=dtype)
         all_seq_scores_sum_exp = 0.0

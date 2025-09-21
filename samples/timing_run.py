@@ -41,7 +41,7 @@ def softmax_layer_time():
 
     ce_batch.init_parameters_storage(np.copy(ce.get_model()))
 
-    labels = np.zeros((num_max_seq_blocks * max_seq_length, batch_size), dtype=np.int)
+    labels = np.zeros((num_max_seq_blocks * max_seq_length, batch_size), dtype=int)
     # each output sample has a single coordinate set
     for i in range(num_max_seq_blocks * max_seq_length):
         labels[i, 0:batch_size] = np.random.randint(0, dim_k, batch_size)
@@ -61,7 +61,7 @@ def softmax_layer_time():
     delta_err = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
     delta_err_batch = np.empty((num_max_seq_blocks * max_seq_length, batch_size, dim_d), dtype=dtype)
 
-    seq_lengths = np.empty((batch_size,), dtype=np.int)
+    seq_lengths = np.empty((batch_size,), dtype=int)
     seq_lengths.fill(max_seq_length)
 
     start_time = time.time()
@@ -211,7 +211,7 @@ def rnn_time():
     print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
           % (batch_size, num_max_seq_blocks, time_elapsed))
 
-    seq_lengths = np.empty((batch_size, ), dtype=np.int)
+    seq_lengths = np.empty((batch_size, ), dtype=int)
     seq_lengths.fill(max_seq_length)
 
     start_time = time.time()
@@ -348,7 +348,7 @@ def gru_time():
     print("total time elapsed for %d x %d non-batched invocations of 1 sequence: %.4g sec"
           % (batch_size, num_max_seq_blocks, time_elapsed))
 
-    seq_lengths = np.empty((batch_size, ), dtype=np.int)
+    seq_lengths = np.empty((batch_size, ), dtype=int)
     seq_lengths.fill(max_seq_length)
 
     start_time = time.time()

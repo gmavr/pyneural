@@ -6,7 +6,7 @@ cimport numpy as np
 from libc.math cimport exp as c_exp
 from libc.math cimport log as c_log
 
-from ctypes cimport np_floats_t, np_index_ints_t, np_length_ints_t
+from pyneural.ctypes cimport np_floats_t, np_index_ints_t, np_length_ints_t
 
 """
 Cython implementation of miscellaneous components providing substantial speed up over python-only implementation.

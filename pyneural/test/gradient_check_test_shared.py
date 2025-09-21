@@ -26,8 +26,8 @@ class GradientCheckTestShared(unittest.TestCase):
         print("per invocation time: %.4g sec" % (time_elapsed / num_invocations))
         print("total time elapsed for %d invocations: %.4g sec" % (num_invocations, time_elapsed))
 
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
 
     def do_input_gradient_check(self, loss_obj, x, y_true, tolerance, h_init=None):
         assert x.ndim == 2
@@ -49,8 +49,8 @@ class GradientCheckTestShared(unittest.TestCase):
         print("per invocation time: %.4g sec" % (time_elapsed / num_invocations))
         print("total time elapsed for %d invocations: %.4g sec" % (num_invocations, time_elapsed))
 
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
 
     def do_param_batched_gradient_check(self, loss_obj, x, y_true, seq_lengths, tolerance, h_init=None):
         # needed only for setting y_true (should be a separate call)
@@ -71,8 +71,8 @@ class GradientCheckTestShared(unittest.TestCase):
         print("per invocation time: %.4g sec" % (time_elapsed / num_invocations))
         print("total time elapsed for %d invocations: %.4g sec" % (num_invocations, time_elapsed))
 
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
 
     def do_input_batched_gradient_check(self, loss_obj, x, y_true, seq_lengths, tolerance, h_init=None):
         assert x.ndim == 3
@@ -98,5 +98,5 @@ class GradientCheckTestShared(unittest.TestCase):
         print("per invocation time: %.4g sec" % (time_elapsed / num_invocations))
         print("total time elapsed for %d invocations: %.4g sec" % (num_invocations, time_elapsed))
 
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_model(), loss_obj.get_built_model())))
+        self.assertTrue(np.all(np.equal(loss_obj.get_gradient(), loss_obj.get_built_gradient())))

@@ -12,7 +12,7 @@ class NeuralLayer(ComponentNN):
     def __init__(self, dim_x, dim_y, dtype, activation="tanh", asserts_on=True):
         self.dim_x = dim_x
         self.dim_y = dim_y
-        super(NeuralLayer, self).__init__((self.dim_x + 1) * self.dim_y, dtype)
+        super().__init__((self.dim_x + 1) * self.dim_y, dtype)
         self.w = self.b = None
         self.dw = self.db = None
         self.asserts_on = asserts_on
