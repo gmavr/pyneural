@@ -12,7 +12,7 @@ class LayerWithL2Loss(nb.LossNN):
     def __init__(self, component_nn):
         assert isinstance(component_nn, nb.ComponentNN)
         self.component_nn = component_nn
-        super(LayerWithL2Loss, self).__init__(self.component_nn.get_num_p(), component_nn.get_dtype())
+        super().__init__(self.component_nn.get_num_p(), component_nn.get_dtype())
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -41,13 +41,13 @@ class LayerWithL2Loss(nb.LossNN):
         # set the (same) init, because after each forward propagation it is overwritten
         if "h_init" in kwargs:
             self.component_nn.set_init_h(kwargs["h_init"])
-        return super(LayerWithL2Loss, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         # set the (same) init, because after each forward propagation it is overwritten
         if "h_init" in kwargs:
             self.component_nn.set_init_h(kwargs["h_init"])
-        return super(LayerWithL2Loss, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def get_built_gradient(self):
         return self.component_nn.get_gradient()
@@ -66,8 +66,7 @@ class BatchSequencesWithL2Loss(nb.BatchSequencesLossNN):
         assert isinstance(component_nn, nb.BatchSequencesComponentNN)
         self.component_nn = component_nn
         self.asserts_on = asserts_on
-        super(BatchSequencesWithL2Loss, self).__init__(
-            num_p=self.component_nn.get_num_p(), dtype=component_nn.get_dtype())
+        super().__init__(num_p=self.component_nn.get_num_p(), dtype=component_nn.get_dtype())
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -115,13 +114,13 @@ class BatchSequencesWithL2Loss(nb.BatchSequencesLossNN):
         # set the (same) init, because after each forward propagation it is overwritten
         if "h_init" in kwargs:
             self.component_nn.set_init_h(kwargs["h_init"])
-        return super(BatchSequencesWithL2Loss, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         # set the (same) init, because after each forward propagation it is overwritten
         if "h_init" in kwargs:
             self.component_nn.set_init_h(kwargs["h_init"])
-        return super(BatchSequencesWithL2Loss, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def get_built_gradient(self):
         return self.component_nn.get_gradient()

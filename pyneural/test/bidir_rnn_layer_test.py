@@ -14,7 +14,7 @@ def create_random_data_dense_inputs(loss_nn, num_samples):
 
 def create_random_data_embedding_inputs(loss_nn, num_samples):
     model, labels, h_init_f = _create_random_data(loss_nn, num_samples)
-    data = np.random.randint(0, loss_nn.word_vocab_size, size=num_samples, dtype=np.int)
+    data = np.random.randint(0, loss_nn.word_vocab_size, size=num_samples, dtype=int)
     return model, data, labels, h_init_f
 
 

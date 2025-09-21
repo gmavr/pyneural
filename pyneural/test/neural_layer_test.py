@@ -94,14 +94,14 @@ class TestNeuralLayer(gcs.GradientCheckTestShared):
 
         n_layer.forward(x)
 
-        self.assertTrue(np.alltrue(np.equal(model, n_layer.get_model())))
+        self.assertTrue(np.all(np.equal(model, n_layer.get_model())))
         self.assertTrue(np.shares_memory(model, n_layer.get_model()))
 
         model[dim_x:(dim_x + dim_y)] = 0.1 * np.random.standard_normal(dim_y).astype(dtype)
 
         # check that the model contents inside n_layer changed
-        self.assertTrue(np.alltrue(np.equal(model, n_layer.get_model())))
-        self.assertTrue(np.alltrue(np.equal(model, n_layer.get_built_model())))
+        self.assertTrue(np.all(np.equal(model, n_layer.get_model())))
+        self.assertTrue(np.all(np.equal(model, n_layer.get_built_model())))
         self.assertTrue(np.shares_memory(model, n_layer.get_model()))
 
         n_layer.forward(x)
@@ -109,7 +109,7 @@ class TestNeuralLayer(gcs.GradientCheckTestShared):
         delta_upper = 0.1 * np.random.standard_normal((num_samples, dim_y)).astype(dtype)
         n_layer.backwards(delta_upper)
 
-        self.assertTrue(np.alltrue(np.equal(grad, n_layer.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(grad, n_layer.get_built_gradient())))
         self.assertTrue(np.shares_memory(grad, n_layer.get_gradient()))
 
 

@@ -128,8 +128,8 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         seq_lengths = np.random.randint(max_seq_length - 3, max_seq_length, batch_size)
         seq_lengths[0] = 0  # set first sequence to be 0 length
-        x = np.zeros((max_seq_length, batch_size), dtype=np.int)
-        labels = np.zeros((max_seq_length, batch_size), dtype=np.int)
+        x = np.zeros((max_seq_length, batch_size), dtype=int)
+        labels = np.zeros((max_seq_length, batch_size), dtype=int)
         for j in range(batch_size):
             seq_length = seq_lengths[j]
             x[0:seq_length, j] = np.random.randint(0, dim_v, seq_length)

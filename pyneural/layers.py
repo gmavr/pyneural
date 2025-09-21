@@ -25,7 +25,7 @@ class HiddenSoftMax(LossNN):
         self.ce_sm = csl.CESoftmaxLayer(self.dim_k, self.dim_h, dtype)
         self.nl = NeuralLayer(self.dim_d, self.dim_h, dtype, activation, asserts_on=asserts_on)
         num_params = self.nl.get_num_p() + self.ce_sm.get_num_p()
-        super(HiddenSoftMax, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.delta_error = None
 
     def get_display_dict(self):
@@ -98,7 +98,7 @@ class RnnSoftMax(LossNN):
         else:
             raise ValueError("Invalid cell type")
         num_params = self.rnn.get_num_p() + self.ce_sm.get_num_p()
-        super(RnnSoftMax, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.delta_error = None
 
     def get_display_dict(self):
@@ -152,12 +152,12 @@ class RnnSoftMax(LossNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         self.set_init_h(kwargs["h_init"])
-        return super(RnnSoftMax, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         # set the (same) init, because after each forward propagation it is overwritten
         self.set_init_h(kwargs["h_init"])
-        return super(RnnSoftMax, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def _set_model_references_in_place(self):
         params = self._model
@@ -184,7 +184,7 @@ class RnnEmbeddingsSoftMax(LossNN):
         self.rnn_softmax = rnn_softmax
         self.embedding_layer = embedding_layer
         num_params = rnn_softmax.get_num_p() + embedding_layer.get_num_p()
-        super(RnnEmbeddingsSoftMax, self).__init__(num_params, embedding_layer.get_dtype())
+        super().__init__(num_params, embedding_layer.get_dtype())
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -211,7 +211,7 @@ class RnnEmbeddingsSoftMax(LossNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         self.rnn_softmax.set_init_h(kwargs["h_init"])
-        return super(RnnEmbeddingsSoftMax, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         raise ValueError("Derivative w.r. to discrete inputs is not defined")
@@ -246,7 +246,7 @@ class RnnEmbeddingsSoftMaxBatch(BatchSequencesLossNN):
         assert isinstance(rnn_layer, RnnBatchLayer)
         assert isinstance(embedding_layer, EmbeddingLayerBatch)
         num_params = softmax_layer.get_num_p() + rnn_layer.get_num_p() + embedding_layer.get_num_p()
-        super(RnnEmbeddingsSoftMaxBatch, self).__init__(num_params,  rnn_layer.get_dtype())
+        super().__init__(num_params,  rnn_layer.get_dtype())
         self.softmax_layer = softmax_layer
         self.rnn_layer = rnn_layer
         self.embedding_layer = embedding_layer
@@ -346,11 +346,11 @@ class RnnClassSoftMax(LossNN):
             + self.num_classes * self.word_ce_sm[0].get_num_p()
         self.word_classes_num_param = self.num_classes * self.word_ce_sm[0].get_num_p()
 
-        super(RnnClassSoftMax, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.delta_error = None
 
         self.word_classes_grad = np.zeros((self.num_classes, self.word_ce_sm[0].get_num_p()), dtype=self._dtype)
-        self.word_classes = np.zeros((self.num_samples, ), dtype=np.int)  # XXX labels.dtype
+        self.word_classes = np.zeros((self.num_samples, ), dtype=int)  # XXX labels.dtype
 
     def get_display_dict(self):
         d = self._init_display_dict()
@@ -443,11 +443,11 @@ class RnnClassSoftMax(LossNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         self.set_init_h(kwargs["h_init"])
-        return super(RnnClassSoftMax, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         self.set_init_h(kwargs["h_init"])
-        return super(RnnClassSoftMax, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def get_built_model(self):
         params = np.empty(self.get_num_p(), dtype=self._dtype)
@@ -509,7 +509,7 @@ class BidirRnnSoftMax(LossNN):
         self.dim_d, self.dim_h, self.dim_k = dimensions
         self.bi_rnn = BidirRnnLayer(self.dim_d, self.dim_h, max_seq_length, bptt_steps, dtype, activation, cell_type)
         self.ce_sm = csl.CESoftmaxLayer(self.dim_k, 2 * self.dim_h, dtype)
-        super(BidirRnnSoftMax, self).__init__(self.bi_rnn.get_num_p() + self.ce_sm.get_num_p(), dtype)
+        super().__init__(self.bi_rnn.get_num_p() + self.ce_sm.get_num_p(), dtype)
         self.delta_error = None
 
     def get_display_dict(self):
@@ -537,12 +537,12 @@ class BidirRnnSoftMax(LossNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         self.bi_rnn.set_init_h(kwargs["h_init"])
-        return super(BidirRnnSoftMax, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         # set the (same) init, because after each forward propagation it is overwritten
         self.bi_rnn.set_init_h(kwargs["h_init"])
-        return super(BidirRnnSoftMax, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def _set_model_references_in_place(self):
         params = self._model
@@ -572,7 +572,7 @@ class EmbeddingBidirRnnSoftMax(LossNN):
         self.bi_rnn = BidirRnnLayer(self.dim_d, self.dim_h, max_seq_length, bptt_steps, dtype, activation)
         self.ce_sm = csl.CESoftmaxLayer(self.dim_k, 2 * self.dim_h, dtype)
         num_params = self.word_em.get_num_p() + self.bi_rnn.get_num_p() + self.ce_sm.get_num_p()
-        super(EmbeddingBidirRnnSoftMax, self).__init__(num_params, dtype)
+        super().__init__(num_params, dtype)
         self.delta_error = None
 
     def get_display_dict(self):
@@ -603,12 +603,12 @@ class EmbeddingBidirRnnSoftMax(LossNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         self.bi_rnn.set_init_h(kwargs["h_init"])
-        return super(EmbeddingBidirRnnSoftMax, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         # set the (same) init, because after each forward propagation it is overwritten
         self.bi_rnn.set_init_h(kwargs["h_init"])
-        return super(EmbeddingBidirRnnSoftMax, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def _set_model_references_in_place(self):
         params = self._model
@@ -652,7 +652,7 @@ class CRFandRRN(LossNN):
         self.nl = NeuralLayer(self.dim_h, self.dim_k, dtype, activation=None)
         self.rnn = rl.RnnLayer(self.dim_d, self.dim_h, max_seq_length, dtype)
         num_p = self.ce_crf.get_num_p() + self.nl.get_num_p() + self.rnn.get_num_p()
-        super(CRFandRRN, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         self.delta_error = None
 
     def get_display_dict(self):
@@ -681,12 +681,12 @@ class CRFandRRN(LossNN):
 
     def forward_backwards_grad_model(self, **kwargs):
         self.set_init_h(kwargs["h_init"])
-        return super(CRFandRRN, self).forward_backwards_grad_model()
+        return super().forward_backwards_grad_model()
 
     def forward_backwards_grad_input(self, **kwargs):
         # set the (same) init, because after each forward propagation it is overwritten
         self.set_init_h(kwargs["h_init"])
-        return super(CRFandRRN, self).forward_backwards_grad_input()
+        return super().forward_backwards_grad_input()
 
     def _set_model_references_in_place(self):
         params = self._model

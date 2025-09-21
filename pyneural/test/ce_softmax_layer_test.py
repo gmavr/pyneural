@@ -86,14 +86,14 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
         for j in range(batch_size):
             x[0:seq_lengths[j], j, :] = 0.1 * np.random.standard_normal((seq_lengths[j], dim_x)).astype(dtype)
 
-        labels = np.zeros((max_seq_length, batch_size), dtype=np.int)
+        labels = np.zeros((max_seq_length, batch_size), dtype=int)
         for j in range(batch_size):
             labels[0:seq_lengths[j], j] = np.random.randint(0, dim_k, seq_lengths[j])
 
         self.do_param_batched_gradient_check(ce_batch, x, labels, seq_lengths, tolerance)
 
         # the gradient check verifying derivative w.r.to inputs requires the batch to contain full sequences
-        seq_lengths = np.empty((batch_size, ), dtype=np.int)
+        seq_lengths = np.empty((batch_size, ), dtype=int)
         seq_lengths.fill(max_seq_length)
         x = 0.1 * np.random.standard_normal((max_seq_length, batch_size, dim_x)).astype(dtype)
 
@@ -120,7 +120,7 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
             [[-5.0, 0.1, 0.2], [2.7, 9.1, -2.0], [2.1, -1.5, 1.4], [0.0, 0.0, 0.0]],
             [[1.7, 2.4, -5.1], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         ], dtype=dtype)
-        seq_lengths = np.array([1, 3, 2, 3, 1], dtype=np.int)
+        seq_lengths = np.array([1, 3, 2, 3, 1], dtype=int)
 
         self.assertEqual(data.shape, (batch_size, max_seq_length, dim_d))
         self.assertEqual(seq_lengths.shape, (batch_size,))
@@ -184,11 +184,11 @@ class TestCESoftmaxLayer(gcs.GradientCheckTestShared):
             self.assertTrue(np.allclose(d1, delta_err_t[0:seq_lengths[i], i], rtol=rtol, atol=atol))
             # second part, if exists, should be 0.0
             if seq_lengths[i] < max_seq_length:
-                self.assertTrue(np.alltrue(np.equal(delta_err_t[seq_lengths[i]:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(delta_err_t[seq_lengths[i]:max_seq_length, i], 0.0)))
 
         self.assertTrue(np.allclose(accum_grad, ce_batch.get_gradient(), rtol=rtol, atol=atol))
-        self.assertTrue(np.alltrue(np.equal(ce_batch.get_model(), ce_batch.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(ce_batch.get_gradient(), ce_batch.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(ce_batch.get_model(), ce_batch.get_built_model())))
+        self.assertTrue(np.all(np.equal(ce_batch.get_gradient(), ce_batch.get_built_gradient())))
         self.assertTrue(np.shares_memory(grad_storage, ce_batch.get_gradient()))
 
 

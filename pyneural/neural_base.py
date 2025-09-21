@@ -192,7 +192,7 @@ class ComponentNN(CoreNN):
     """
 
     def __init__(self, num_p, dtype):
-        super(ComponentNN, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         self.y = None  # leave this non-encapsulated
 
     @abstractmethod
@@ -226,7 +226,7 @@ class LossNN(CoreNN):
     """
 
     def __init__(self, num_p, dtype):
-        super(LossNN, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         # self._x and self._y_true  are needed for gradient checks
         self._x = None
         self._y_true = None
@@ -291,7 +291,7 @@ class BatchSequencesComponentNN(CoreNN):
             max_batch_size: maximum possible number of sequences in any batch, i.e. upper limit on x.shape[1]
             dtype: floating arithmetic type (np.float32 or np.float64)
         """
-        super(BatchSequencesComponentNN, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         self._max_seq_length = max_seq_length  # maximum length of dimension 0 (time) of x for all batches
         self._max_num_sequences = max_batch_size  # maximum length of dimension 1 (sequence) of x for all batches
         if self._max_seq_length <= 0:
@@ -460,7 +460,7 @@ class BatchSequencesLossNN(CoreNN):
     """
 
     def __init__(self, num_p, dtype):
-        super(BatchSequencesLossNN, self).__init__(num_p, dtype)
+        super().__init__(num_p, dtype)
         # when this object is a single scalar layer, the following 3 are needed for gradient checks, otherwise they
         # are not necessary as they are part of the enclosed component BatchSequencesComponentNN objects.
         self._seq_lengths = None

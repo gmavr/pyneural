@@ -56,7 +56,7 @@ def create_random_data_full_batch(rnn_batch):
     dtype = rnn_batch.get_dtype()
     dim_d, dim_h = rnn_batch.get_dimensions()
 
-    seq_lengths = np.empty(batch_size, dtype=np.int)
+    seq_lengths = np.empty(batch_size, dtype=int)
     seq_lengths.fill(max_seq_length)
 
     x = np.random.standard_normal((max_seq_length, batch_size, dim_d)).astype(dtype)
@@ -132,7 +132,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
         # Verify that y beyond the sequence end is accepted and ignored.
         x[0:seq_length_sav, 1, :] = 0.0
         _, _, delta_err = loss_and_layer.forward_backwards(x, y, seq_lengths)
-        self.assertTrue(np.alltrue(np.equal(delta_err[:, 0, :], 0.0)))
+        self.assertTrue(np.all(np.equal(delta_err[:, 0, :], 0.0)))
 
     def test_batching_equivalence(self):
         """Verifies that a batched invocation of N sequences and N non-batched invocations of 1 sequence return the same
@@ -153,7 +153,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             [[-5.0, 0.1, 0.2], [2.7, 9.1, -2.0], [2.1, -1.5, 1.4], [0.0, 0.0, 0.0]],
             [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
             ], dtype=dtype)
-        seq_lengths = np.array([1, 3, 2, 3, 0], dtype=np.int)
+        seq_lengths = np.array([1, 3, 2, 3, 0], dtype=int)
 
         self.assertEqual(data_t.shape, (batch_size, max_seq_length, dim_d))
         self.assertEqual(seq_lengths.shape, (batch_size, ))
@@ -220,10 +220,9 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
             # check 0-padded hidden state for mini-batch versions
             if seq_length < max_seq_length:
-                # numpy returns bool_ which needs cast to bool
-                self.assertTrue(bool(np.alltrue(np.equal(out_hs1[seq_length:max_seq_length, i], 0.0))))
-                self.assertTrue(bool(np.alltrue(np.equal(out_hs2[seq_length:max_seq_length, i], 0.0))))
-                self.assertTrue(bool(np.alltrue(np.equal(out_hs3[i, seq_length:max_seq_length], 0.0))))
+                self.assertTrue(np.all(np.equal(out_hs1[seq_length:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(out_hs2[seq_length:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(out_hs3[i, seq_length:max_seq_length], 0.0)))
 
             # check non-0 hidden state for mini-batch versions
             hs_first = out_hs[i, 0:seq_length]
@@ -257,7 +256,7 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
             self.assertTrue(np.allclose(delta_err, delta_err_1[0:seq_lengths[i], i], rtol=tolerance, atol=tolerance))
             # second part, if exists, should be 0.0
             if seq_lengths[i] < max_seq_length:
-                self.assertTrue(np.alltrue(np.equal(delta_err_1[seq_lengths[i]:max_seq_length, i], 0.0)))
+                self.assertTrue(np.all(np.equal(delta_err_1[seq_lengths[i]:max_seq_length, i], 0.0)))
 
             # check the 2 mini-batch versions
 
@@ -270,8 +269,8 @@ class TestRnnLayer(gcs.GradientCheckTestShared):
 
         self.assertTrue(np.allclose(accum_grad, rnn_batch_layer_1.get_gradient(), rtol=tolerance, atol=tolerance))
         self.assertTrue(np.allclose(accum_grad_2, rnn_batch_layer_1.get_gradient(), rtol=tolerance, atol=tolerance))
-        self.assertTrue(np.alltrue(np.equal(rnn_batch_layer_1.get_model(), rnn_batch_layer_1.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(rnn_batch_layer_1.get_gradient(), rnn_batch_layer_1.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(rnn_batch_layer_1.get_model(), rnn_batch_layer_1.get_built_model())))
+        self.assertTrue(np.all(np.equal(rnn_batch_layer_1.get_gradient(), rnn_batch_layer_1.get_built_gradient())))
         self.assertTrue(np.shares_memory(grad_storage_1, rnn_batch_layer_1.get_gradient()))
 
 

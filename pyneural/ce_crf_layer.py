@@ -22,7 +22,7 @@ class CRFLayer(LossNN):
                 training large models
         """
         self.dim_k = dim_k
-        super(CRFLayer, self).__init__(self.dim_k * self.dim_k, dtype)
+        super().__init__(self.dim_k * self.dim_k, dtype)
         self.max_seq_length = max_seq_length
         self.asserts_on = asserts_on
         self.num_samples_prev = -1
@@ -496,23 +496,23 @@ class CRFLayer(LossNN):
         # forward path ending at [t, j]. So we build that simpler trellis here.
         # trellis[t, j] is the score of the most probable sequence that ends in label j at time t
         trellis = np.zeros_like(self.data)  # (T, K)
-        # backpointers[t, j] is the previous label (at time t-1) in the path for the maximum probability sequence when
+        # back_pointers[t, j] is the previous label (at time t-1) in the path for the maximum probability sequence when
         # the label at time t is j
-        backpointers = np.empty(self.data.shape, dtype=class_dtype)
+        back_pointers = np.empty(self.data.shape, dtype=class_dtype)
         trellis[0] = self.a_trans[self.prev_label] + self.data[0]
-        backpointers[0] = self.prev_label
+        back_pointers[0] = self.prev_label
 
         for t in range(1, num_samples):
             # (K, 1) + (K, K) -> (K, K)
             v = np.reshape(trellis[t - 1], (self.dim_k, 1)) + self.a_trans
             trellis[t] = self.data[t] + np.max(v, axis=0)
-            backpointers[t] = np.argmax(v, axis=0)
+            back_pointers[t] = np.argmax(v, axis=0)
 
         # assemble the highest probability path
         viterbi = np.empty(num_samples, dtype=class_dtype)
         viterbi[num_samples - 1] = np.argmax(trellis[num_samples - 1])
         for t in range(num_samples - 1, 0, -1):
-            viterbi[t-1] = backpointers[t, viterbi[t]]
+            viterbi[t-1] = back_pointers[t, viterbi[t]]
 
         viterbi_score = np.max(trellis[-1])
 

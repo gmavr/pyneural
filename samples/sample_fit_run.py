@@ -64,7 +64,7 @@ def run_rnn_sgd_with_boundaries():
           % (time_elapsed / num_iterations, time_elapsed / (num_iterations*batch_size)))
     print("epochs=%d" % dataset.num_epochs)
 
-    assert np.alltrue(np.equal(model, rnn_obj.get_model()))
+    assert np.all(np.equal(model, rnn_obj.get_model()))
     assert np.shares_memory(model, rnn_obj.get_model())
 
 
@@ -109,7 +109,7 @@ def run_bi_rnn_sgd():
           % (time_elapsed / num_iterations, time_elapsed / (num_iterations*batch_size)))
     print("epochs=%d" % dataset.num_epochs)
 
-    assert np.alltrue(np.equal(model, bi_rnn_obj.get_model()))
+    assert np.all(np.equal(model, bi_rnn_obj.get_model()))
     assert np.shares_memory(model, bi_rnn_obj.get_model())
 
 
@@ -151,7 +151,7 @@ def run_manual_init_sgd_long():
             x[i, j] = float(lcg()) / float(prng_modulus) - 0.5
     # print(x)
 
-    y_true = np.empty((num_samples, ), np.int)
+    y_true = np.empty((num_samples, ), int)
     for i in range(num_samples):
         y_true[i] = int(dim_k * (float(lcg()) / float(prng_modulus)))
     # print(y_true)
@@ -236,7 +236,7 @@ def run_rnn_sgd_long():
           % (time_elapsed / num_iterations, time_elapsed / (num_iterations*batch_size)))
     print("epochs=%d" % dataset.num_epochs)
 
-    assert np.alltrue(np.equal(model, loss_obj.get_model()))
+    assert np.all(np.equal(model, loss_obj.get_model()))
     assert np.shares_memory(model, loss_obj.get_model())
 
 
@@ -284,7 +284,7 @@ def run_rnn_em_sgd_long():
           % (time_elapsed / num_iterations, time_elapsed / (num_iterations*batch_size)))
     print("epochs=%d" % dataset.num_epochs)
 
-    assert np.alltrue(np.equal(model, rnn_obj_em.get_model()))
+    assert np.all(np.equal(model, rnn_obj_em.get_model()))
     assert np.shares_memory(model, rnn_obj_em.get_model())
 
 
@@ -333,7 +333,7 @@ def run_rnn_class_sm_sgd_long():
           % (time_elapsed / num_iterations, time_elapsed / (num_iterations*batch_size)))
     print("epochs=%d" % dataset.num_epochs)
 
-    assert np.alltrue(np.equal(model, rnn_obj.get_model()))
+    assert np.all(np.equal(model, rnn_obj.get_model()))
 
 
 if __name__ == "__main__":

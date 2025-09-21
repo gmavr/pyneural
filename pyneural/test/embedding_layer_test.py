@@ -35,7 +35,7 @@ def create_random_data_batch(em_object, max_seq_length, batch_size, int_dtype):
         delta_err: (T, B, D)
         seq_lengths: (B, ) np.int
     """
-    # here we generate delta_err and y_true completely unrelated, so they can't be be used together (they are normally
+    # here we generate delta_err and y_true completely unrelated, so they can't be used together (they are normally
     # connected by the loss function and predictions)
     dtype = em_object.get_dtype()
     dim_k, dim_d = em_object.dim_k, em_object.dim_d
@@ -97,7 +97,7 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         for i in range(batch_size):
             out[0:seq_lengths[i], i] = em_obj.forward(x[0:seq_lengths[i], i])
             out_py[0:seq_lengths[i], i] = em_obj_py.forward(x[0:seq_lengths[i], i])
-            self.assertTrue(np.alltrue(np.equal(out, out_py)))
+            self.assertTrue(np.all(np.equal(out, out_py)))
 
         out_batch = em_obj_batch.forward(x, seq_lengths)
         out_batch_py = em_obj_batch_py.forward(x, seq_lengths)
@@ -106,11 +106,11 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
             seq_length = seq_lengths[i]
             if seq_length != 0:
                 # check that the single sequence and the batch version return the same
-                self.assertTrue(np.alltrue(np.equal(out[0:seq_length, i], out_batch[0:seq_length, i])))
-                self.assertTrue(np.alltrue(np.equal(out[0:seq_length, i], out_batch_py[0:seq_length, i])))
+                self.assertTrue(np.all(np.equal(out[0:seq_length, i], out_batch[0:seq_length, i])))
+                self.assertTrue(np.all(np.equal(out[0:seq_length, i], out_batch_py[0:seq_length, i])))
             # check 0-padding
-            self.assertTrue(np.alltrue(np.equal(out_batch[seq_length:max_seq_length, i], 0.0)))
-            self.assertTrue(np.alltrue(np.equal(out_batch_py[seq_length:max_seq_length, i], 0.0)))
+            self.assertTrue(np.all(np.equal(out_batch[seq_length:max_seq_length, i], 0.0)))
+            self.assertTrue(np.all(np.equal(out_batch_py[seq_length:max_seq_length, i], 0.0)))
 
         em_obj_batch.backwards(delta_upper)
         em_obj_batch_py.backwards(delta_upper)
@@ -125,8 +125,8 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
 
         self.assertTrue(np.allclose(accum_grad, em_obj_batch.get_gradient(), rtol=tolerance, atol=tolerance))
         self.assertTrue(np.allclose(accum_grad, em_obj_batch_py.get_gradient(), rtol=tolerance, atol=tolerance))
-        self.assertTrue(np.alltrue(np.equal(em_obj_batch.get_model(), em_obj_batch.get_built_model())))
-        self.assertTrue(np.alltrue(np.equal(em_obj_batch.get_gradient(), em_obj_batch.get_built_gradient())))
+        self.assertTrue(np.all(np.equal(em_obj_batch.get_model(), em_obj_batch.get_built_model())))
+        self.assertTrue(np.all(np.equal(em_obj_batch.get_gradient(), em_obj_batch.get_built_gradient())))
 
     def test_gradient_sparse_samples(self):
         """Verifies implementation where only the gradient array elements that were non-zero in the previous backwards
@@ -222,11 +222,11 @@ class TestEmbeddingLayerGradients(gcs.GradientCheckTestShared):
         # reshape for more convenient indexing
         gradient1 = np.reshape(gradient, (dim_k, dim_d))
 
-        self.assertTrue(np.alltrue(np.equal(gradient1[0], delta_err[1])))
-        self.assertTrue(np.alltrue(np.equal(gradient1[1], delta_err[0] + delta_err[2])))
-        self.assertTrue(np.alltrue(np.equal(gradient1[2], np.zeros((dim_d, )))))
-        self.assertTrue(np.alltrue(np.equal(gradient1[8], delta_err[4])))
-        self.assertTrue(np.alltrue(np.equal(gradient1[19], delta_err[3])))
+        self.assertTrue(np.all(np.equal(gradient1[0], delta_err[1])))
+        self.assertTrue(np.all(np.equal(gradient1[1], delta_err[0] + delta_err[2])))
+        self.assertTrue(np.all(np.equal(gradient1[2], np.zeros((dim_d, )))))
+        self.assertTrue(np.all(np.equal(gradient1[8], delta_err[4])))
+        self.assertTrue(np.all(np.equal(gradient1[19], delta_err[3])))
 
 
 if __name__ == "__main__":

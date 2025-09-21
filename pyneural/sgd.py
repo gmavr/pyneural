@@ -456,7 +456,7 @@ class SgdSolverAdam(SgdSolver):
     It consistently performed the best in all of my applications.
     """
     def __init__(self):
-        super(SgdSolverAdam, self).__init__()
+        super().__init__()
         self.beta1 = 0.9
         self.beta2 = 0.999
         self.eps = 1e-8
@@ -519,7 +519,7 @@ class SgdSolverAdam(SgdSolver):
 
 class SgdSolverMomentum(SgdSolver):
     def __init__(self):
-        super(SgdSolverMomentum, self).__init__()
+        super().__init__()
         self.momentum_factor = 0.95
 
         self.cum_v = None
@@ -552,7 +552,7 @@ class SgdSolverMomentumNag(SgdSolver):
     A variant of the momentum solver that usually converges faster, often significantly faster.
     """
     def __init__(self):
-        super(SgdSolverMomentumNag, self).__init__()
+        super().__init__()
         self.momentum_factor = 0.95
 
         self.cum_v = None
@@ -605,7 +605,7 @@ class SgdSolverStandard(SgdSolver):
     """
 
     def __init__(self):
-        super(SgdSolverStandard, self).__init__()
+        super().__init__()
 
     def get_class_dict(self):
         return self._init_display_dict()

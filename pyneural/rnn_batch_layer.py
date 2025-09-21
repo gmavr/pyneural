@@ -13,7 +13,7 @@ class RnnBatchLayer(BatchSequencesComponentNN):
                  grad_clip_thres=None, asserts_on=True, assert_upper_delta_padded=True):
         self.dim_d, self.dim_h = dim_d, dim_h
         num_params = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
-        super(RnnBatchLayer, self).__init__(num_params, max_seq_length, max_batch_size, dtype)
+        super().__init__(num_params, max_seq_length, max_batch_size, dtype)
         # self._curr_seq_length_dim_max == x.shape[0] of last batch (last x passed in forward_batch(self))
         self._curr_seq_length_dim_max = 0  # must be 0 before the first iteration
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
@@ -285,7 +285,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
         self.dim_d = dim_d
         self.dim_h = dim_h
         num_params = self.dim_h * self.dim_d + self.dim_h * self.dim_h + self.dim_h
-        super(RnnBatchLayerTime2nd, self).__init__(num_params, max_seq_length, max_batch_size, dtype)
+        super().__init__(num_params, max_seq_length, max_batch_size, dtype)
         self._curr_seq_length_dim_max = 0  # must be 0 before the first iteration
         self.bptt_steps = bptt_steps if bptt_steps is not None else max_seq_length
         assert self.bptt_steps <= self._max_seq_length
@@ -331,7 +331,7 @@ class RnnBatchLayerTime2nd(BatchSequencesComponentNN):
             assert x.shape[0] <= self._max_num_sequences
             assert x.shape[2] == self.dim_d
             assert seq_lengths.shape[0] == x.shape[0]
-            assert seq_lengths.dtype == np.int
+            assert seq_lengths.dtype == int
             assert seq_lengths.max() <= x.shape[1]
             assert 0 <= seq_lengths.min()
 
