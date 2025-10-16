@@ -31,7 +31,7 @@ def validate_zero_padding_3d(np.ndarray[np_floats_t, ndim=3] array not None,
 @cython.boundscheck(False)
 cdef int validate_zero_padding_3d_c(np_floats_t[:, :, ::view.contiguous] array_view,
                                     int max_seq_length, int max_num_sequences,
-                                    np_length_ints_t[::1] seq_lengths_view) nogil:
+                                    np_length_ints_t[::1] seq_lengths_view) noexcept nogil:
     cdef Py_ssize_t i, j, k
     for j in range(max_num_sequences):
         if seq_lengths_view[j] < max_seq_length:
@@ -53,7 +53,7 @@ def validate_zero_padding_2d_int(np.ndarray[np_index_ints_t, ndim=2] array not N
 @cython.boundscheck(False)
 cdef int validate_zero_padding_2d_int_c(np_index_ints_t[:, ::1] array_view,
                                         int max_seq_length, int max_num_sequences,
-                                        np_length_ints_t[::1] seq_lengths_view) nogil:
+                                        np_length_ints_t[::1] seq_lengths_view) noexcept nogil:
     cdef Py_ssize_t i, j, k
     for j in range(max_num_sequences):
         if seq_lengths_view[j] < max_seq_length:
@@ -73,7 +73,7 @@ def add_to_diag_batch(np.ndarray[np_floats_t, ndim=4] a not None,
 
 @cython.boundscheck(False)
 cdef inline void add_to_diag_batch_c(
-        np_floats_t[:, :, :, ::1] a_view, np_floats_t[:, :, ::view.contiguous] b_view) nogil:
+        np_floats_t[:, :, :, ::1] a_view, np_floats_t[:, :, ::view.contiguous] b_view) noexcept nogil:
     cdef Py_ssize_t i, j, k
     cdef Py_ssize_t n = b_view.shape[0]
     cdef Py_ssize_t b = b_view.shape[1]
@@ -92,6 +92,8 @@ cdef inline void add_to_diag_batch_c(
 # If function invokes numpy calls, it is even slower, much slower if all are numpy calls.
 # Conclusion: Not worth using cython here. Cython can be slower when it spans over or replaces many numpy calls and
 # there are no loops with very little work inside them. This is surprising but seen consistently.
+# The above have been measured on intel processors circa 2017-2018, python 2.7, numpy 1.x, cython 0.29.x, and things
+# could have changed since then.
 
 def log_sum_exp_opt(np.ndarray[np_floats_t, ndim=2] s_array,
                     np_floats_t scale_term,
@@ -122,7 +124,7 @@ def log_sum_exp_opt(np.ndarray[np_floats_t, ndim=2] s_array,
     return scale_term
 
 @cython.boundscheck(False)
-cdef inline void mysum(np_floats_t[:, ::1] x_view, int axis, np_floats_t[::1] out_view) nogil:
+cdef inline void mysum(np_floats_t[:, ::1] x_view, int axis, np_floats_t[::1] out_view) noexcept nogil:
     cdef Py_ssize_t i, j
     cdef Py_ssize_t m = x_view.shape[0]
     cdef Py_ssize_t n = x_view.shape[1]
@@ -139,27 +141,27 @@ cdef inline void mysum(np_floats_t[:, ::1] x_view, int axis, np_floats_t[::1] ou
                 out_view[i] += x_view[i, j]
 
 @cython.boundscheck(False)
-cdef inline void mysubtract(np_floats_t[:, ::1] x_view, np_floats_t term, np_floats_t[:, ::1] out_view) nogil:
+cdef inline void mysubtract(np_floats_t[:, ::1] x_view, np_floats_t term, np_floats_t[:, ::1] out_view) noexcept nogil:
     cdef Py_ssize_t i, j
     for i in range(x_view.shape[0]):
         for j in range(x_view.shape[1]):
             out_view[i,j] = x_view[i,j] - term
 
 @cython.boundscheck(False)
-cdef inline void myexp(np_floats_t[:, ::1] x_view) nogil:
+cdef inline void myexp(np_floats_t[:, ::1] x_view) noexcept nogil:
     cdef Py_ssize_t i, j
     for i in range(x_view.shape[0]):
         for j in range(x_view.shape[1]):
             x_view[i,j] = c_exp(x_view[i,j])
 
 @cython.boundscheck(False)
-cdef inline void mylog(np_floats_t[::1] x_view) nogil:
+cdef inline void mylog(np_floats_t[::1] x_view) noexcept nogil:
     cdef Py_ssize_t i
     for i in range(x_view.shape[0]):
         x_view[i] = c_log(x_view[i])
 
 @cython.boundscheck(False)
-cdef inline void myadd(np_floats_t[::1] x_view, np_floats_t term, np_floats_t[::1] out_view) nogil:
+cdef inline void myadd(np_floats_t[::1] x_view, np_floats_t term, np_floats_t[::1] out_view) noexcept nogil:
     cdef Py_ssize_t i
     for i in range(x_view.shape[0]):
         out_view[i] = x_view[i] + term

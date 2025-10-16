@@ -23,7 +23,7 @@ def forward(np.ndarray[np_index_ints_t, ndim=1] x not None,
 @cython.boundscheck(False)
 cdef inline void forward_c(np_index_ints_t[:] x_view,
                            np_floats_t[:, ::1] embeddings_view,
-                           np_floats_t[:, ::1] y_view) nogil:
+                           np_floats_t[:, ::1] y_view) noexcept nogil:
     cdef Py_ssize_t i, d
     for i in range(x_view.shape[0]):
         for d in range(embeddings_view.shape[1]):
@@ -39,7 +39,7 @@ def backwards_zero_grad(np.ndarray[np_index_ints_t, ndim=1] x not None,
 
 @cython.boundscheck(False)
 cdef inline void backwards_zero_grad_c(np_index_ints_t[:] x_view,
-                                       np_floats_t[:, ::1] grad_view) nogil:
+                                       np_floats_t[:, ::1] grad_view) noexcept nogil:
     cdef Py_ssize_t i, k
     for i in range(x_view.shape[0]):
         for k in range(grad_view.shape[1]):
@@ -58,7 +58,7 @@ def backwards(np.ndarray[np_index_ints_t, ndim=1] x not None,
 @cython.boundscheck(False)
 cdef inline void backwards_c(np_index_ints_t[:] x_view,
                              np_floats_t[:, :] delta_err_view,
-                             np_floats_t[:, ::1] grad_view) nogil:
+                             np_floats_t[:, ::1] grad_view) noexcept nogil:
     cdef Py_ssize_t i, k
     for i in range(x_view.shape[0]):
         for k in range(grad_view.shape[1]):
@@ -80,7 +80,7 @@ def forward_batch(np.ndarray[np_index_ints_t, ndim=2] x not None,
 cdef void forward_batch_c(np_index_ints_t[:, :] x_view,
                           np_floats_t[:, ::1] embeddings_view,
                           np_floats_t[:, :, ::view.contiguous] y_view,
-                          np_length_ints_t[::1] seq_lengths_view) nogil:
+                          np_length_ints_t[::1] seq_lengths_view) noexcept nogil:
     cdef Py_ssize_t i, j, k
     cdef np_index_ints_t em_index
 
@@ -110,7 +110,7 @@ def backwards_batch(np.ndarray[np_index_ints_t, ndim=2] x not None,
 cdef void backwards_batch_c(np_index_ints_t[:, :] x_view,
                             np_floats_t[:, :, ::view.contiguous] delta_err_view,
                             np_length_ints_t[::1] seq_lengths_view,
-                            np_floats_t[:, ::1] grad_view) nogil:
+                            np_floats_t[:, ::1] grad_view) noexcept nogil:
     cdef Py_ssize_t i, j, k
     for j in range(x_view.shape[1]):
         for i in range(seq_lengths_view[j]):
@@ -132,7 +132,7 @@ def backwards_batch_zero_grad(np.ndarray[np_index_ints_t, ndim=2] x not None,
 @cython.boundscheck(False)
 cdef void backwards_batch_zero_grad_c(np_index_ints_t[:, :] x_view,
                                       np_length_ints_t[::1] seq_lengths_view,
-                                      np_floats_t[:, ::1] grad_view) nogil:
+                                      np_floats_t[:, ::1] grad_view) noexcept nogil:
     cdef Py_ssize_t i, j, k
     for j in range(x_view.shape[1]):
         for i in range(seq_lengths_view[j]):

@@ -17,5 +17,5 @@ cython_extensions = [
 
 setup(
     packages=['pyneural', 'pyneural.test', "samples"],
-    ext_modules=cythonize(cython_extensions, compiler_directives={'language_level': "3"})
+    ext_modules=cythonize(cython_extensions)
 )

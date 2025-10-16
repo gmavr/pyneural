@@ -45,12 +45,16 @@ This makes especially the backward step far more complex to implement but also m
 
 ## Build Instructions
 
-This project requires python 3.9 or newer, but later versions are preferable for more up-to-date dependent packages.
+This project requires python 3.10 or newer, but later versions are preferable for more up-to-date dependent packages.
 The few direct dependencies are listed in [requirements.txt](requirements.txt).
 For dependency isolation it is strongly recommended to use a python virtual environment using [python3 virtualenv](https://docs.python.org/3/library/venv.html) or [conda](https://docs.conda.io/en/latest/).
-(A standard python virtualenv inherits the python interpreter of the environment it was created from, while conda allows you to install any python interpreter version you wish.)
-You should use the [build](https://build.pypa.io/en/stable/) frontend instead of deprecated direct command line calls to `setup.py`.
+(A standard python virtualenv inherits the python interpreter of the environment it was created from, while conda allows you to install any python interpreter version you wish and pin that version.)
 
+Examples of environment creation:
+* non-conda environment: `python -m venv /path/to/virtualenvs/pyneural`
+* conda environment: `conda create -n pyneural312 python=3.12`
+
+You should use the [build](https://build.pypa.io/en/stable/) frontend instead of deprecated direct command line calls to `setup.py`.
 After you create and activate the environment, install dependencies as following:
 * for non-conda environment: `pip install -r requirements.txt`
 * for conda environment: remove `build` from `requirements.txt` because it does not exist as conda package, then `mamba install --file requirements.txt`, `pip install build`.
@@ -59,7 +63,7 @@ Build the binary wheel distribution using `python -m build --wheel`, which corre
 The `--wheel` switch compiles cython to C and C to native machine code.
 For local development or for executing the tests, the compiled C code needs to be copied to the location where the local package is present.
 The simplest way to achieve this is to install the project in "development mode".
-Execute at the command line, from the top-level directory: `python -m pip install -e .`
+Execute at the command line, from the top-level directory of this repository: `python -m pip install -e .`
 
 
 ## Testing and Correctness
